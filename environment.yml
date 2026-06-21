@@ -1,0 +1,27 @@
+name: fiftyone-seg-eval
+
+channels:
+  - pytorch          # PyTorch CPU wheels
+  - conda-forge      # pycocotools, matplotlib, scipy, etc.
+  - defaults
+
+dependencies:
+  - python=3.10
+
+  # PyTorch CPU-only (from pytorch channel)
+  - pytorch>=2.1
+  - torchvision>=0.16
+  - cpuonly
+
+  # System / data tools (conda-forge)
+  - pycocotools>=2.0   # COCO annotation parsing (required by FiftyOne zoo)
+  - matplotlib>=3.7    # confusion matrix PNG export
+  - scipy>=1.10        # boundary IoU: scipy.ndimage.binary_erosion
+  - pip
+
+  - pip:
+    - fiftyone>=0.23   # main framework
+    - Pillow>=10.0     # mask PNG I/O
+    - numpy>=1.24
+    - tqdm>=4.0
+    - kaleido>=0.2     # plotly -> PNG export (optional; used in confusion matrix)
