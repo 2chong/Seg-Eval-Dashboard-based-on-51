@@ -42,7 +42,8 @@ panel_stats.json v2 스키마:
 메트릭 자동 동기화:
   메트릭 정의는 config.PANEL_COLUMN_META (kind="metric", compute 키)만 편집하면 됨.
   compute.source 전략:
-    "fiftyone_eval" — seg_eval_{exp}_{field} 샘플 필드에서 읽기
+    "fiftyone_eval" — {field}_{exp} 샘플 필드에서 읽기
+                       (evaluation.py 가 FO 생성 {exp}_{field} → {field}_{exp} 로 rename)
     "derived"       — 다른 메트릭 값에서 파생 (fn 으로 함수 이름 지정)
     "mask"          — 마스크 파일에서 직접 계산 (fn 으로 함수 이름 지정)
   새 메트릭 추가 시 기존 source 재사용이면 config 한 항목만; 새 source이면 +계산 함수 1개.
@@ -106,8 +107,17 @@ def _f1_from_pr(p: float | None, r: float | None) -> float | None:
     return float(2 * p * r / (p + r)) if (p + r) > 0 else 0.0
 
 
+def _f2_from_pr(p: float | None, r: float | None) -> float | None:
+    # F_beta (beta=2): (1+4)*P*R / (4*P + R)
+    if p is None or r is None:
+        return None
+    denom = 4 * p + r
+    return float(5 * p * r / denom) if denom > 0 else 0.0
+
+
 _DERIVED_FNS: dict[str, callable] = {
-    "f1": _f1_from_pr,   # fn="f1" → f1_from_pr(precision, recall)
+    "f1": _f1_from_pr,
+    "f2": _f2_from_pr,
 }
 
 
@@ -156,7 +166,8 @@ _MASK_FNS: dict[str, callable] = {
 # ── 헬퍼 ──────────────────────────────────────────────────────────────────────
 
 def _is_attr_field(name: str, ftype) -> bool:
-    if name in config.PANEL_EXCLUDE_FIELDS or name.startswith("seg_eval_"):
+    exp_suffixes = tuple(f"_{exp}" for exp in config.EXPERIMENTS)
+    if name in config.PANEL_EXCLUDE_FIELDS or name.endswith(exp_suffixes):
         return False
     col_meta = config.PANEL_COLUMN_META.get(name, {})
     if col_meta.get("kind") == "metric":
@@ -223,9 +234,9 @@ def _build_records(
 
         computed: dict[str, float | None] = {}
 
-        # 1. fiftyone_eval: seg_eval_{exp}_{field} 샘플 필드에서 읽기
+        # 1. fiftyone_eval: {field}_{exp} 샘플 필드에서 읽기 (메트릭명_모델명 순)
         for mname, spec in fo_eval_metrics.items():
-            fo_field = f"seg_eval_{exp_name}_{spec['compute']['field']}"
+            fo_field = f"{spec['compute']['field']}_{exp_name}"
             computed[mname] = _get_scalar(sample, fo_field)
 
         # 2. mask: 사전 계산된 dict 에서 조회
@@ -283,6 +294,7 @@ def _per_class_by_value(
     attr_field_names: list[str],
     classes: list[str],
     schema: dict,
+    pred_field: str = "predictions",
 ) -> dict[str, dict]:
     """categorical 속성별 픽셀-레벨 per-class 메트릭 (records 로 대체 불가한 유일한 픽셀 집계).
 
@@ -308,28 +320,35 @@ def _per_class_by_value(
                 continue
             print(f"      [{fname}={value}] {len(view)} samples …")
 
-            sub = view.evaluate_segmentations(
-                "predictions",
-                gt_field="ground_truth",
-                eval_key=_SUB_EVAL_KEY,
-                mask_targets=config.MASK_TARGETS,
-            )
             try:
-                report = sub.report()
-            except Exception as exc:
-                print(f"        Warning: report() failed ({exc}). Skipping.")
-                report = {}
+                sub = view.evaluate_segmentations(
+                    pred_field,
+                    gt_field="ground_truth",
+                    eval_key=_SUB_EVAL_KEY,
+                    mask_targets=config.MASK_TARGETS,
+                )
+                try:
+                    report = sub.report()
+                except Exception as exc:
+                    print(f"        Warning: report() failed ({exc}). Skipping.")
+                    report = {}
 
-            per_class: dict[str, dict] = {}
-            for cls in classes:
-                row = report.get(cls, {})
-                r, p, f = row.get("recall"), row.get("precision"), row.get("f1-score")
-                per_class[cls] = {
-                    "recall":    float(r) if r is not None else None,
-                    "precision": float(p) if p is not None else None,
-                    "f1":        float(f) if f is not None else None,
-                }
-            by_value[str(value)] = {"per_class": per_class}
+                per_class: dict[str, dict] = {}
+                for cls in classes:
+                    row = report.get(cls, {})
+                    r, p, f = row.get("recall"), row.get("precision"), row.get("f1-score")
+                    per_class[cls] = {
+                        "recall":    float(r) if r is not None else None,
+                        "precision": float(p) if p is not None else None,
+                        "f1":        float(f) if f is not None else None,
+                    }
+                by_value[str(value)] = {"per_class": per_class}
+            finally:
+                # 스크래치 eval + 임시 필드(panel_sub_*)를 즉시 삭제.
+                # 루프 안에서 정리해야 다음 이터레이션이 같은 key 로 충돌하지 않고,
+                # report() 중 예외가 발생해도 MongoDB 에 잔재가 남지 않는다.
+                if _SUB_EVAL_KEY in dataset.list_evaluations():
+                    dataset.delete_evaluation(_SUB_EVAL_KEY)
 
         if by_value:
             result[fname] = by_value
@@ -446,6 +465,10 @@ def main() -> None:
 
     # ── per-experiment 집계 ──────────────────────────────────────────────────
     all_eval_results = evaluation.run(dataset)
+
+    # evaluation.run() 이 이미 {exp}_{metric} → {metric}_{exp} 리네임을 수행했다.
+    # (pipeline/evaluation.py 의 _FO_EVAL_SCALARS 로직 참조)
+
     classes: list[str] = []
     exp_stats: dict[str, dict] = {}
 
@@ -472,19 +495,13 @@ def main() -> None:
         # per-class overall (픽셀 레벨, report() 기반)
         per_class = _per_class_overall(results)
 
-        # categorical 속성별 픽셀-레벨 per-class (predictions 필드를 이 exp 마스크로 교체)
+        # categorical 속성별 픽셀-레벨 per-class (experiment 별 predictions_<exp> 필드 직접 사용)
         pred_field = f"predictions_{exp_name}"
         if pred_field not in schema:
             print(f"  ⚠  '{pred_field}' 없음 → per_class_by_value 건너뜀.")
             per_class_by_val: dict[str, dict] = {}
         else:
-            print(f"  Swapping 'predictions' → '{pred_field}' for subset eval …")
-            for sample in dataset.iter_samples(autosave=True):
-                exp_seg = sample.get_field(pred_field)
-                if exp_seg is not None:
-                    sample["predictions"] = exp_seg
-
-            per_class_by_val = _per_class_by_value(dataset, attr_field_names, exp_classes, schema)
+            per_class_by_val = _per_class_by_value(dataset, attr_field_names, exp_classes, schema, pred_field)
 
         # mask source 메트릭 사전 계산
         precomputed: dict[str, dict] = {}
@@ -507,6 +524,22 @@ def main() -> None:
         records = _build_records(
             dataset, attr_field_names, exp_name, metric_specs, precomputed
         )
+
+        # fiftyone_eval 이외의 메트릭(derived, mask)을 {metric}_{exp} 샘플 필드로 저장.
+        # configure_sidebar() 가 endswith(f"_{exp_name}") 패턴으로 감지해 "Metrics·{model}" 그룹에 표시.
+        non_fo_metrics = [
+            m for m, spec in metric_specs.items()
+            if spec["compute"]["source"] != "fiftyone_eval"
+        ]
+        if non_fo_metrics:
+            record_by_path = {r["image_path"]: r for r in records}
+            for sample in dataset.iter_samples(autosave=True):
+                rec = record_by_path.get(sample.filepath, {})
+                for mname in non_fo_metrics:
+                    val = rec.get(mname)
+                    if val is not None:
+                        sample[f"{mname}_{exp_name}"] = float(val)
+
         print(f"  records: {len(records)} rows, keys={list(records[0].keys()) if records else []}")
 
         # correlation (records 기반, 메트릭 동적)

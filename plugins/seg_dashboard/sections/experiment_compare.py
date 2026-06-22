@@ -17,6 +17,7 @@ except ImportError:
 from .base import PanelSection
 from ..charts import GroupedMetricChart
 from ..charts.base import _empty_figure
+from ..framework.widgets import add_dropdown
 from ..charts.metric import _metric_label
 from ..stats import list_experiments, get_experiment_stats, list_metrics
 
@@ -29,25 +30,23 @@ class ExperimentCompareSection(PanelSection):
     """
 
     def _available_metrics(self, stats: dict, experiments: list[str]) -> list[str]:
-        """per_class 에 값이 있는 메트릭 키 목록. 없으면 columns kind=metric 전체."""
-        for exp in experiments:
-            per_class = get_experiment_stats(stats, exp).get("per_class", {})
-            if per_class:
-                sample = next(iter(per_class.values()), {})
-                found = [m for m in sample if sample.get(m) is not None]
-                if found:
-                    return found
+        """columns 에 등록된 모든 메트릭 목록을 반환한다.
+
+        per_class 데이터가 없는 메트릭(biou, f2 등)은 Overall 바만 표시되고
+        per-class 바는 생략된다 — 차트 코드가 이미 이를 처리한다.
+        """
         return list_metrics(stats)
 
     def render(self, panel, stats: dict, state: dict, callbacks: dict | None = None) -> None:
-        callbacks   = callbacks or {}
-        experiments = list_experiments(stats)
+        callbacks    = callbacks or {}
+        all_exps     = list_experiments(stats)
+        selected_set = set(state.get("selected_experiments") or all_exps)
+        experiments  = [e for e in all_exps if e in selected_set] or all_exps
 
         if len(experiments) < 2:
             fig = _empty_figure(
-                "Experiment comparison requires 2+ experiments.<br>"
-                "Run tools/run_inference.py with multiple models,<br>"
-                "then re-run precompute_panel_stats.py."
+                "Select 2 or more experiments above to compare.<br>"
+                "(If only 1 experiment exists, run inference for another model.)"
             )
             panel.plot("exp_compare_figure", data=fig["data"], layout=fig["layout"])
             return
@@ -58,15 +57,11 @@ class ExperimentCompareSection(PanelSection):
         if metric not in available:
             metric = available[0] if available else "recall"
 
-        mc = types.Dropdown(label="Metric")
-        for m in available:
-            mc.add_choice(m, label=_metric_label(m))
-        panel.enum(
-            "metric",
-            mc.values(),
-            view=mc,
-            default=metric,
+        add_dropdown(
+            panel, "metric", available,
+            label="Metric", default=metric,
             on_change=callbacks.get("metric"),
+            labels=_metric_label,
         )
 
         # ── per-experiment per-class 데이터 수집 ─────────────────────────────

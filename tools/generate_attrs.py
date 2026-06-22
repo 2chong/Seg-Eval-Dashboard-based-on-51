@@ -44,9 +44,15 @@ import seg_utils
 
 
 def _generate_value(meta: dict, rng: random.Random):
-    """PANEL_COLUMN_META 한 항목의 generate 스펙에 따라 값을 생성한다."""
+    """PANEL_COLUMN_META 한 항목의 generate 스펙에 따라 값을 생성한다.
+
+    null_prob 지정 시 해당 확률로 None(JSON null) 을 반환한다.
+    """
     gen    = meta.get("generate", {})
     method = gen.get("method")
+
+    if gen.get("null_prob", 0.0) > 0.0 and rng.random() < gen["null_prob"]:
+        return None
 
     if method == "choice":
         return rng.choice(meta["values"])
@@ -120,21 +126,25 @@ def main() -> None:
     # 속성별 요약 출력
     print()
     for field, meta in schema.items():
-        vals = [v[field] for v in updates.values() if v.get(field) is not None]
+        all_vals = [v[field] for v in updates.values()]
+        null_count = sum(1 for v in all_vals if v is None)
+        vals = [v for v in all_vals if v is not None]
+        null_suffix = f"  (null: {null_count}/{len(all_vals)})" if null_count else ""
         if not vals:
+            print(f"  {field:<12}: all null{null_suffix}")
             continue
         if meta["type"] == "categorical":
             from collections import Counter
             dist = Counter(vals)
-            print(f"  {field:<12}: {dict(dist)}")
+            print(f"  {field:<12}: {dict(dist)}{null_suffix}")
         else:
             print(
                 f"  {field:<12}: min={min(vals)}, max={max(vals)}, "
-                f"mean={sum(vals)/len(vals):.3f}"
+                f"mean={sum(vals)/len(vals):.3f}{null_suffix}"
             )
 
     print(
-        "\n  NOTE: biou / recall / f1 / precision are prediction-dependent metrics\n"
+        "\n  NOTE: biou / recall / precision / f1 / f2 are prediction-dependent metrics\n"
         "        and are NOT computed here — see precompute_panel_stats.py."
     )
 

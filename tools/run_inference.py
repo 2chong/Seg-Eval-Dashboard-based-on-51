@@ -75,9 +75,21 @@ def _load_deeplabv3_mv3():
     return model, weights.transforms()
 
 
+def _load_fcn_r50():
+    from torchvision.models.segmentation import (
+        FCN_ResNet50_Weights,
+        fcn_resnet50,
+    )
+    weights = FCN_ResNet50_Weights.COCO_WITH_VOC_LABELS_V1
+    model   = fcn_resnet50(weights=weights)
+    model.eval()
+    return model, weights.transforms()
+
+
 MODEL_LOADERS: dict[str, callable] = {
     "lraspp_mv3":    _load_lraspp_mv3,
     "deeplabv3_mv3": _load_deeplabv3_mv3,
+    "fcn_r50":       _load_fcn_r50,
 }
 
 # 새 모델 추가 체크리스트:

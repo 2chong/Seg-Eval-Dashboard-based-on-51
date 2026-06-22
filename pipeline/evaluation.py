@@ -6,10 +6,13 @@ pipeline/evaluation.py
   run(dataset)          → {exp_name: SegmentationResults} 반환
   print_report(results) → 콘솔에 per-class 표 출력
 
-evaluate_segmentations() 는 각 샘플에 아래 scalar 필드를 기록한다:
-  seg_eval_<exp>_accuracy   — 샘플별 픽셀 정확도
-  seg_eval_<exp>_recall     — per-sample recall (또는 DictField)
-  seg_eval_<exp>_precision  — per-sample precision
+evaluate_segmentations() 가 생성하는 {exp}_{metric} 필드를 실행 직후
+{metric}_{exp} 형태로 rename 한다 (configure_sidebar 의 endswith("_{exp}") 패턴에 맞추기 위함).
+
+최종 sample 필드 이름:
+  accuracy_{exp}   — 샘플별 픽셀 정확도  (예: accuracy_lraspp_mv3)
+  recall_{exp}     — per-sample recall
+  precision_{exp}  — per-sample precision
 """
 
 from __future__ import annotations
@@ -21,6 +24,11 @@ try:
 except ImportError as exc:
     import sys
     sys.exit(f"FiftyOne not installed.\nError: {exc}")
+
+# FiftyOne이 eval_key=exp_name 으로 생성하는 per-sample 스칼라 필드 목록.
+# evaluate_segmentations 직후 {exp}_{metric} → {metric}_{exp} 로 리네임한다.
+# configure_sidebar 가 f.endswith(f"_{exp_name}") 패턴으로 검색하기 때문.
+_FO_EVAL_SCALARS = ("accuracy", "recall", "precision")
 
 
 def run(dataset: fo.Dataset) -> dict[str, object]:
@@ -39,7 +47,7 @@ def run(dataset: fo.Dataset) -> dict[str, object]:
 
     for exp_name in config.EXPERIMENTS:
         pred_field = f"predictions_{exp_name}"
-        eval_key   = f"seg_eval_{exp_name}"
+        eval_key   = exp_name
 
         if pred_field not in schema:
             print(f"  ⚠  '{pred_field}' 필드 없음 → '{exp_name}' 평가 건너뜀")
@@ -68,6 +76,17 @@ def run(dataset: fo.Dataset) -> dict[str, object]:
         )
 
     print("Evaluation done.")
+
+    # FO가 {exp}_{metric} 순으로 필드를 생성하므로 {metric}_{exp} 로 리네임.
+    # configure_sidebar 의 f.endswith(f"_{exp_name}") 패턴과 일치시키기 위함.
+    schema = dataset.get_field_schema()
+    for exp_name in config.EXPERIMENTS:
+        for m in _FO_EVAL_SCALARS:
+            old_name, new_name = f"{exp_name}_{m}", f"{m}_{exp_name}"
+            if old_name in schema:
+                dataset.rename_sample_field(old_name, new_name)
+                print(f"  [rename] {old_name} → {new_name}")
+
     return all_results
 
 

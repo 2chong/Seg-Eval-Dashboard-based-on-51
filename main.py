@@ -20,6 +20,7 @@ pipeline 단계:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -90,6 +91,7 @@ def _auto_sync_if_stale() -> None:
     트리거 규칙:
       config.py > sample_attrs.json  → generate_attrs + precompute (속성 정의 변경)
       sample_attrs.json > panel_stats.json → precompute only (attrs 만 갱신)
+      manifest.json > panel_stats.json  → precompute only (추론 결과 변경, 새 모델 추가 등)
 
     manifest.json 이 없는 데이터셋(inference 미실행)은 건너뛴다.
     """
@@ -103,11 +105,12 @@ def _auto_sync_if_stale() -> None:
         if not manifest.exists():
             continue  # inference 미실행 → 건너뜀
 
-        attrs_mtime = attrs.stat().st_mtime if attrs.exists() else 0
-        stats_mtime = stats.stat().st_mtime if stats.exists() else 0
+        attrs_mtime    = attrs.stat().st_mtime if attrs.exists() else 0
+        stats_mtime    = stats.stat().st_mtime if stats.exists() else 0
+        manifest_mtime = manifest.stat().st_mtime
 
         need_attrs = config_mtime > attrs_mtime
-        need_stats = need_attrs or (attrs_mtime > stats_mtime)
+        need_stats = need_attrs or (attrs_mtime > stats_mtime) or (manifest_mtime > stats_mtime)
 
         if need_attrs:
             print(f"\n  [auto-sync] {ds_key}: config.py changed — regenerating attrs ...")
@@ -147,6 +150,14 @@ def _build_all_datasets() -> fo.Dataset:
 
         ds          = dataset_builder.build(manifest, attrs)
         all_results = evaluation.run(ds)
+
+        # derived/mask 메트릭(f1/f2/biou 등)을 {metric}_{exp} sample 필드로 부착.
+        # fiftyone_eval 메트릭(accuracy/recall/precision)은 evaluation.run() 이 이미 붙였다.
+        # 사이드바 배치 기준은 kind — metric 이면 전부 "Metrics · {model}" 그룹에 표시.
+        if config.PANEL_STATS_PATH.exists():
+            with open(config.PANEL_STATS_PATH, encoding="utf-8") as _f:
+                _stats = json.load(_f)
+            dataset_builder.attach_derived_metric_fields(ds, _stats)
 
         # 사이드바 설정: config.activate_dataset(ds_key) 가 유효한 구간에서 수행.
         # 같은 속성그룹을 가진 데이터셋은 자동으로 같은 사이드바를 갖게 된다.

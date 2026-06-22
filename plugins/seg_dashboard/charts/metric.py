@@ -16,6 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 from .base import BaseChart, _empty_figure
+from .registry import register_chart
 
 
 def _metric_label(metric: str) -> str:
@@ -26,6 +27,7 @@ def _metric_label(metric: str) -> str:
 # Categorical
 # ─────────────────────────────────────────────────────────────────────────────
 
+@register_chart("metric")
 class CategoricalMetricChart(BaseChart):
     """categorical 속성 값별 평균 메트릭 bar chart (records 기반).
 
@@ -81,6 +83,7 @@ class CategoricalMetricChart(BaseChart):
 # Numerical
 # ─────────────────────────────────────────────────────────────────────────────
 
+@register_chart("metric")
 class NumericalMetricChart(BaseChart):
     """numerical 속성 구간별 mean 메트릭 추이 line chart (records 기반).
 

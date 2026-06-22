@@ -34,20 +34,47 @@ except ImportError as exc:
 
 from ..stats import load_stats, list_experiments, list_datasets, get_columns, list_metrics
 
+
+class _BoundCb:
+    """Wraps a closure so FiftyOne's serializer treats it as a bound method.
+
+    FiftyOne requires on_change callbacks to satisfy:
+        value.__self__.uri  -> operator URI  (e.g. "seg_dashboard/seg_experiment")
+        value.__name__      -> method name   (e.g. "on_change_exp_sel_lraspp_mv3")
+
+    FiftyOne dispatches the event by calling
+        getattr(operator_instance, method_name)(ctx)
+    so _BoundCb also registers itself on the operator via setattr().
+
+    Usage (in a panel that needs per-item closures):
+        def _make_exp_sel_callback(self, exp):
+            def _cb(ctx): ...
+            return _BoundCb(self, f"on_change_exp_sel_{exp}", _cb)
+    """
+
+    def __init__(self, operator, method_name: str, fn) -> None:
+        self.__self__ = operator   # FiftyOne reads operator.uri from here
+        self.__name__ = method_name
+        self._fn      = fn
+        setattr(operator, method_name, self)   # register for FiftyOne dispatch
+
+    def __call__(self, ctx):
+        return self._fn(ctx)
+
 _NO_STATS_MSG = (
     "panel_stats.json not found.\n"
     "Run:  python tools/precompute_panel_stats.py"
 )
 
 # 기본 상태 스키마 — 서브클래스에서 오버라이드 가능
-# "metric" 기본값은 on_load 에서 stats 의 첫 번째 메트릭으로 동적 설정된다.
-# 여기서는 빈 문자열로만 두어 "recall" 리터럴 하드코딩을 방지한다.
+# attr_sec.* : AttributeSection / MetricBreakdownSection 이 사용하는 컨테이너 네임스페이스.
+#              ObjectView 컨테이너("attr_sec") 안에 렌더링되므로 점 표기 경로를 사용한다.
 _BASE_STATE_DEFAULTS: dict = {
-    "dataset":    None,      # 선택된 데이터셋 키
-    "field":      None,      # 선택된 속성 필드
-    "bins":       10,        # histogram 구간 수
-    "metric":     "",        # 선택된 성능 메트릭 (on_load 에서 첫 메트릭으로 초기화)
-    "experiment": None,      # 선택된 experiment 이름
+    "dataset":         None,   # 선택된 데이터셋 키
+    "attr_sec.field":  None,   # 선택된 속성 필드
+    "attr_sec.bins":   10,     # histogram 구간 수
+    "attr_sec.metric": "",     # 선택된 성능 메트릭 (on_load 에서 첫 메트릭으로 초기화)
+    "experiment":      None,   # 선택된 experiment 이름
 }
 
 
@@ -99,12 +126,12 @@ class BasePanel(foo.Panel):
         columns = get_columns(stats)
         attr_fields = [k for k, v in columns.items() if v.get("kind") == "attribute"]
         if attr_fields:
-            ctx.panel.set_state("field", attr_fields[0])
+            ctx.panel.set_state("attr_sec.field", attr_fields[0])
 
         # metric: columns 메타에서 첫 번째 metric 으로 초기화 (하드코딩 없음)
         metrics = list_metrics(stats)
         if metrics:
-            ctx.panel.set_state("metric", metrics[0])
+            ctx.panel.set_state("attr_sec.metric", metrics[0])
 
         # experiment: meta.experiments 에서 기본값
         experiments = list_experiments(stats)
@@ -124,10 +151,10 @@ class BasePanel(foo.Panel):
                 columns = get_columns(stats)
                 attr_fields = [k for k, v2 in columns.items() if v2.get("kind") == "attribute"]
                 if attr_fields:
-                    ctx.panel.set_state("field", attr_fields[0])
+                    ctx.panel.set_state("attr_sec.field", attr_fields[0])
                 metrics = list_metrics(stats)
                 if metrics:
-                    ctx.panel.set_state("metric", metrics[0])
+                    ctx.panel.set_state("attr_sec.metric", metrics[0])
                 exps = list_experiments(stats)
                 if exps:
                     default_exp = stats.get("meta", {}).get("default_experiment", exps[0])
@@ -136,23 +163,27 @@ class BasePanel(foo.Panel):
     def on_change_field(self, ctx) -> None:
         v = ctx.params.get("value")
         if v is not None:
-            ctx.panel.set_state("field", v)
-            ctx.panel.set_state("bins", self.STATE_DEFAULTS.get("bins", 10))
+            ctx.panel.set_state("attr_sec.field", v)
+            ctx.panel.set_state("attr_sec.bins", self.STATE_DEFAULTS.get("attr_sec.bins", 10))
 
     def on_change_bins(self, ctx) -> None:
         v = ctx.params.get("value")
         if v is not None:
-            ctx.panel.set_state("bins", max(2, int(v)))
+            ctx.panel.set_state("attr_sec.bins", max(2, int(v)))
 
     def on_change_metric(self, ctx) -> None:
         v = ctx.params.get("value")
         if v is not None:
-            ctx.panel.set_state("metric", v)
+            ctx.panel.set_state("attr_sec.metric", v)
 
     def on_change_experiment(self, ctx) -> None:
         v = ctx.params.get("value")
         if v is not None:
             ctx.panel.set_state("experiment", v)
+
+    def _extra_callbacks(self) -> dict:
+        """서브클래스에서 추가 상태키의 콜백을 등록한다."""
+        return {}
 
     # ── 렌더 ──────────────────────────────────────────────────────────────────
 
@@ -165,7 +196,7 @@ class BasePanel(foo.Panel):
             key: (ctx.panel.get_state(key) if ctx.panel.get_state(key) is not None else default)
             for key, default in self.STATE_DEFAULTS.items()
         }
-        state["bins"] = max(2, int(state["bins"]))
+        state["attr_sec.bins"] = max(2, int(state["attr_sec.bins"]))
 
         # 선택된 데이터셋의 stats 로드
         stats = load_stats(state.get("dataset"))
@@ -179,10 +210,10 @@ class BasePanel(foo.Panel):
             return types.Property(panel)
 
         # field 가 None 이면 columns attribute 첫 번째로 대체
-        if not state.get("field"):
+        if not state.get("attr_sec.field"):
             columns = get_columns(stats)
             attr_fields = [k for k, v in columns.items() if v.get("kind") == "attribute"]
-            state["field"] = attr_fields[0] if attr_fields else None
+            state["attr_sec.field"] = attr_fields[0] if attr_fields else None
 
         # experiment 가 None 이면 meta 에서 대체
         if not state.get("experiment"):
@@ -198,6 +229,7 @@ class BasePanel(foo.Panel):
             "bins":       self.on_change_bins,
             "metric":     self.on_change_metric,
             "experiment": self.on_change_experiment,
+            **self._extra_callbacks(),
         }
 
         for section in self.SECTIONS:

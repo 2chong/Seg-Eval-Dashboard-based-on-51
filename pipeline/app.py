@@ -7,14 +7,12 @@ pipeline/app.py
                      Ctrl+C 로 종료.
 
 App 에서 확인 가능한 것:
-  - 이미지 그리드 + GT/예측 마스크 오버레이 (ground_truth, predictions 필드)
-  - 평가 지표 필터: seg_eval_accuracy / seg_eval_recall
-  - 속성 필터 (tools/generate_attrs.py 실행 시):
-      time        — day/night 카운트·체크박스
-      complexity  — 0~1 히스토그램·범위 슬라이더
-  - Segmentation Dashboard 패널 (tools/precompute_panel_stats.py 실행 후):
-      Confusion Matrix Heatmap
-      속성 분포 + Recall 차트 (속성 드롭다운으로 전환)
+  - 이미지 그리드 + GT/예측 마스크 오버레이 (ground_truth, predictions_<exp> 필드)
+  - Sample Attributes 사이드바 그룹: time, complexity, count, brightness, density 등
+  - Metrics · {model} 사이드바 그룹 (experiment 당 1개):
+      recall_{exp}, precision_{exp}, accuracy_{exp}  ← fiftyone_eval
+      f1_{exp}, f2_{exp}, biou_{exp}                 ← derived/mask
+  - Segmentation Dashboard 패널 (tools/precompute_panel_stats.py 실행 후)
 """
 
 from __future__ import annotations
@@ -37,7 +35,7 @@ def configure_sidebar(dataset: fo.Dataset) -> None:
     schema = dataset.get_field_schema()
 
     # ── 마스크 레이블 필드 ─────────────────────────────────────────────────────
-    pred_fields = ["predictions"] + [
+    pred_fields = [
         f"predictions_{exp}" for exp in _cfg.EXPERIMENTS
         if f"predictions_{exp}" in schema
     ]
@@ -58,11 +56,14 @@ def configure_sidebar(dataset: fo.Dataset) -> None:
             fo.SidebarGroupDocument(name="Sample Attributes", paths=attr_fields)
         )
 
-    # ── experiment 별 평가 메트릭 필드 (schema 에 있는 seg_eval_<exp>_* 전부) ──
+    # ── experiment 별 평가 메트릭 필드 ({metric}_{exp} 패턴, 수치형만) ──────────
     for exp_name, exp_cfg in _cfg.EXPERIMENTS.items():
-        exp_label   = exp_cfg.get("label", exp_name)
-        prefix      = f"seg_eval_{exp_name}_"
-        exp_fields  = sorted(f for f in schema if f.startswith(prefix))
+        exp_label  = exp_cfg.get("label", exp_name)
+        suffix     = f"_{exp_name}"
+        exp_fields = sorted(
+            f for f, ftype in schema.items()
+            if f.endswith(suffix) and isinstance(ftype, (fo.FloatField, fo.IntField))
+        )
         if exp_fields:
             groups.append(
                 fo.SidebarGroupDocument(name=f"Metrics · {exp_label}", paths=exp_fields)
@@ -84,8 +85,8 @@ def launch(dataset: fo.Dataset) -> None:
     print("    ground_truth / predictions 눈 아이콘으로 각각 on/off")
     print()
     print("  [Filters 사이드바 그룹]")
-    print("  → Sample Attributes  : time (day/night), complexity (0~1)")
-    print("  → Standard Metrics   : seg_eval_accuracy, seg_eval_recall")
+    print("  → Sample Attributes  : time, complexity, count, brightness, density 등")
+    print("  → Metrics · {model}  : recall_{exp}, precision_{exp}, f1_{exp}, biou_{exp} 등")
     print("  → 위 필드로 정렬(Sort by)도 가능")
     print()
     print("  [5개 분석 패널]  App 우상단 '+' 에서 열기 (Panels 탭)")

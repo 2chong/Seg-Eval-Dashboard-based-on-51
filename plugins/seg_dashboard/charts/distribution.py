@@ -5,8 +5,10 @@ from __future__ import annotations
 import numpy as np
 
 from .base import BaseChart, _empty_figure
+from .registry import register_chart
 
 
+@register_chart("distribution")
 class AttributeDistributionChart(BaseChart):
     """속성 분포 차트 (records 기반).
 

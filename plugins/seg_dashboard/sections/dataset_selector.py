@@ -9,12 +9,8 @@ App 그리드(썸네일)와 완전히 독립적 -- 패널 통계만 전환한다
 
 from __future__ import annotations
 
-try:
-    import fiftyone.operators.types as types
-except ImportError:
-    types = None
-
 from .base import PanelSection
+from ..framework.widgets import add_dropdown
 from ..stats import list_datasets
 
 
@@ -23,21 +19,18 @@ class DatasetSelectorSection(PanelSection):
 
     def render(self, panel, stats: dict, state: dict, callbacks: dict | None = None) -> None:
         callbacks = callbacks or {}
-        datasets = list_datasets()
+        datasets  = list_datasets()
 
         if len(datasets) < 2:
             return  # 단일 데이터셋 -> 드롭다운 숨김
 
         current = state.get("dataset") or datasets[0]["key"]
+        labels  = {ds["key"]: ds["label"] for ds in datasets}
 
-        choices = types.Dropdown(label="Dataset")
-        for ds in datasets:
-            choices.add_choice(ds["key"], label=ds["label"])
-
-        panel.enum(
-            "dataset",
-            choices.values(),
-            view=choices,
-            default=current,
+        add_dropdown(
+            panel, "dataset",
+            [ds["key"] for ds in datasets],
+            label="Dataset", default=current,
             on_change=callbacks.get("dataset"),
+            labels=labels,
         )

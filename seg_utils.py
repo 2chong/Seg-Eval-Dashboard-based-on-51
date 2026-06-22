@@ -1,7 +1,7 @@
 """
 seg_utils.py
 ────────────
-Lightweight helpers for mask PNG I/O, manifest management, and tags I/O.
+Lightweight helpers for mask PNG I/O, manifest management, and sample attrs I/O.
 Shared between tools/* (1회성 준비 스크립트) and pipeline/* (분석 단계).
 """
 

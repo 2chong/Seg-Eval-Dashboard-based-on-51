@@ -7,6 +7,7 @@ Datasets  : COCO-2017 validation subset (VOC-overlapping classes)
             새 데이터셋 추가 -> DATASETS 레지스트리에 항목 추가
 Models    : LRASPP MobileNetV3-Large  (기본)
             DeepLabV3 MobileNetV3-Large (비교용)
+            FCN ResNet-50
 
 실행 시 데이터셋 선택 (기본값: DEFAULT_DATASET):
     python main.py --dataset coco-val-voc-50b
@@ -24,7 +25,7 @@ ROOT_DIR = Path(__file__).parent.resolve()
 # 각 데이터셋은 "attributes" 키로 그룹명을 참조한다.
 ATTRIBUTE_GROUPS: dict[str, list[str]] = {
     "basic": ["time", "complexity"],
-    "full":  ["time", "complexity", "count"],
+    "full":  ["time", "complexity", "count", "brightness", "density"],
 }
 DEFAULT_ATTRIBUTE_GROUP = "full"
 
@@ -95,6 +96,17 @@ DATASETS: dict[str, dict] = {
         "attr_seed":   7,
         "attributes":  "full",
     },
+    "coco-val-voc-50c": {
+        "label":       "COCO Val 50 - Set C (seed 99)",
+        "data_dir":    ROOT_DIR / "data_coco_c",
+        "zoo_name":    "coco-2017",
+        "split":       "validation",
+        "classes":     None,
+        "num_samples": 50,
+        "seed":        99,
+        "attr_seed":   99,
+        "attributes":  "full",
+    },
     # 새 데이터셋 추가 예시:
     # "my-dataset": {
     #     "label":       "My Dataset",
@@ -117,6 +129,7 @@ DEFAULT_DATASET = "coco-val-voc-50"
 _EXPERIMENT_LABELS: dict[str, str] = {
     "lraspp_mv3":    "LRASPP MobileNetV3-Large",
     "deeplabv3_mv3": "DeepLabV3 MobileNetV3-Large",
+    "fcn_r50":       "FCN ResNet-50",
 }
 DEFAULT_EXPERIMENT = "lraspp_mv3"
 
@@ -204,7 +217,7 @@ PLUGINS_DIR = ROOT_DIR / "plugins"
 
 PANEL_EXCLUDE_FIELDS: frozenset = frozenset({
     "id", "filepath", "tags", "metadata",
-    "ground_truth", "predictions",
+    "ground_truth",
 })
 
 # Column metadata for panel display.
@@ -212,15 +225,20 @@ PANEL_EXCLUDE_FIELDS: frozenset = frozenset({
 # 새 속성/메트릭 추가 시 여기에 등록 -> Schema 패널·차트에 자동 반영된다.
 #
 # kind="attribute" : 데이터 고유 속성, experiment 무관.
-#                    fo.Dataset sample 필드로 부착된다 (사이드바 primitive).
+#                    fo.Dataset sample 필드로 부착된다 (사이드바 "Sample Attributes" 그룹).
 # kind="metric"    : 예측·평가에서 나온 값, experiment 마다 다름.
-#                    panel_stats.json 에만 존재하며 절대 sample 필드가 되지 않는다.
+#                    sample_attrs 경로로는 부착되지 않는다. 대신 evaluation.run() 과
+#                    attach_derived_metric_fields() 가 {metric}_{exp} 필드로 부착해
+#                    사이드바 "Metrics · {model}" 그룹에 표시한다.
 PANEL_COLUMN_META: dict[str, dict] = {
     # ── attributes ────────────────────────────────────────────────────────────
     # generate.method:
-    #   "choice" → rng.choice(values)
-    #   "float"  → rng.uniform(*range), rounded to generate.round decimals
-    #   "int"    → rng.randint(*range)  (stored as integer)
+    #   "choice"  → rng.choice(values)
+    #   "float"   → rng.uniform(*range), rounded to generate.round decimals
+    #   "int"     → rng.randint(*range)  (stored as integer)
+    # null_prob (optional, float 0-1): 지정 확률로 None(JSON null) 을 반환한다.
+    #   예시: "null_prob": 0.2  → 약 20% 샘플에서 null, 나머지 80% 는 정상 값 생성.
+    #   null_prob 미지정 → 항상 정상 값 생성 (기존 동작 유지).
     "time": {
         "kind":        "attribute",
         "type":        "categorical",
@@ -242,9 +260,24 @@ PANEL_COLUMN_META: dict[str, dict] = {
         "range":       [0, 50],
         "generate":    {"method": "int"},
     },
+    "brightness": {
+        "kind":        "attribute",
+        "type":        "numerical",
+        "description": "Image brightness score (randomly generated, 0-1)",
+        "range":       [0.0, 1.0],
+        "generate":    {"method": "float", "round": 3},
+    },
+    "density": {
+        "kind":        "attribute",
+        "type":        "numerical",
+        "description": "Mask density: foreground pixel ratio (0-1). null if annotation absent.",
+        "range":       [0.0, 1.0],
+        "generate":    {"method": "float", "round": 3, "null_prob": 0.2},
+    },
     # ── metrics ───────────────────────────────────────────────────────────────
     # compute.source 는 3가지 일반 전략:
-    #   "fiftyone_eval" → seg_eval_{exp}_{field} 샘플 필드에서 읽기
+    #   "fiftyone_eval" → {field}_{exp} 샘플 필드에서 읽기
+    #                      (evaluation.py 가 FO 생성 {exp}_{field} → {field}_{exp} 로 rename)
     #   "derived"       → 다른 메트릭에서 파생 (fn 으로 함수 지정)
     #   "mask"          → 마스크 파일에서 직접 계산 (fn 으로 함수 지정, 사전 계산됨)
     #
@@ -276,6 +309,13 @@ PANEL_COLUMN_META: dict[str, dict] = {
         "description": "Boundary IoU (boundary accuracy, dilation_ratio=0.02)",
         "range":       [0.0, 1.0],
         "compute":     {"source": "mask", "fn": "biou", "params": {"dilation_ratio": 0.02}},
+    },
+    "f2": {
+        "kind":        "metric",
+        "type":        "numerical",
+        "description": "Per-sample F2 score (beta=2, weights recall over precision)",
+        "range":       [0.0, 1.0],
+        "compute":     {"source": "derived", "fn": "f2", "deps": ["precision", "recall"]},
     },
 }
 

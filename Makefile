@@ -2,13 +2,13 @@ PYTHON   = python
 DS      ?= coco-val-voc-50
 
 # 모든 데이터셋 목록 — 새 데이터셋 추가 시 여기와 config.DATASETS 만 편집.
-DATASETS = coco-val-voc-50 coco-val-voc-50b
+DATASETS = coco-val-voc-50 coco-val-voc-50b coco-val-voc-50c
 
 # =============================================================================
-# 속성/메트릭/코드 변경 후 모든 데이터셋 통계를 한 번에 갱신
+# 수동 sync (통상 make run 의 auto-sync 로 불필요 — 강제 재생성이 필요할 때만)
 #   make sync                        <- 기본 데이터셋만
 #   make sync DS=coco-val-voc-50b   <- 특정 데이터셋
-#   make sync-all                   <- 모든 데이터셋 (가장 자주 쓰는 명령)
+#   make sync-all                   <- 모든 데이터셋
 # =============================================================================
 .PHONY: sync
 sync:
@@ -22,8 +22,8 @@ sync-all:
 		$(PYTHON) tools/precompute_panel_stats.py --dataset $(ds) && ) true
 
 # =============================================================================
-# App 실행
-#   make run                       <- 기본 데이터셋 (coco-val-voc-50)
+# App 실행 (주 명령)
+#   make run                       <- 기본 데이터셋 (config.py 변경 시 자동 sync 포함)
 #   make run DS=coco-val-voc-50b   <- 특정 데이터셋
 # =============================================================================
 .PHONY: run
@@ -31,9 +31,10 @@ run:
 	$(PYTHON) main.py --dataset $(DS)
 
 # =============================================================================
-# 최초 파이프라인 (데이터가 없을 때 순서대로 실행)
+# 최초 파이프라인 (inference 미실행 시, 또는 새 데이터셋 추가 시)
 #   make pipeline                       <- DS 기본값
 #   make pipeline DS=coco-val-voc-50b   <- 특정 데이터셋
+# 이후에는 make run 만으로 충분합니다.
 # =============================================================================
 .PHONY: pipeline
 pipeline: inference attrs stats
@@ -42,6 +43,10 @@ pipeline: inference attrs stats
 .PHONY: inference
 inference:
 	$(PYTHON) tools/run_inference.py --dataset $(DS)
+
+.PHONY: inference-all
+inference-all:
+	$(foreach ds,$(DATASETS),$(PYTHON) tools/run_inference.py --dataset $(ds) ; ) true
 
 # 2단계: 샘플 속성 생성 (manifest 변경 시 재실행)
 .PHONY: attrs
@@ -74,7 +79,8 @@ stats-all:
 #   make regen-stats-all
 #
 # 새 실험(experiment) 추가 (_EXPERIMENT_LABELS 등록 + 추론 완료 후):
-#   make regen-stats-all
+#   make inference-all   ← 전체 데이터셋 추론 + manifest 갱신
+#   make run             ← manifest 변경 자동 감지 → stats 재집계 후 App 실행
 # =============================================================================
 
 .PHONY: regen-attr
@@ -110,7 +116,7 @@ rebuild:
 # 정리 타겟
 #   make clean-stats    <- panel_stats.json 만 삭제 (regen-stats-all 전 강제 재실행용)
 #   make clean-attrs    <- attrs + stats 삭제
-#   make clean-all      <- 생성 데이터 전체 삭제 (이미지/마스크 제외)
+#   make clean-all      <- data_dir 전체 삭제 (마스크·이미지 포함, 재다운로드 필요)
 # =============================================================================
 .PHONY: clean-stats
 clean-stats:
@@ -127,4 +133,6 @@ import config; \
 
 .PHONY: clean-all
 clean-all:
-	rm -rf data data_coco_b
+	$(PYTHON) -c "\
+import config, shutil; \
+[shutil.rmtree(str(config.DATASETS[ds]['data_dir']), ignore_errors=True) or print('rm', config.DATASETS[ds]['data_dir']) for ds in config.DATASETS]"
