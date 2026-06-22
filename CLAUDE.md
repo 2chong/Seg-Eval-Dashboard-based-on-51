@@ -1,236 +1,39 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+**언어**: 모든 응답은 한국어로 작성한다. 코드·명령어·파일명은 그대로 유지.
 
-## Project Overview
+건물 패치 평가 대시보드(fo_building_eval) → demo-fiftyone-dashboard 템플릿 기반 이관 프로젝트.
 
-FiftyOne-based interactive dashboard for evaluating semantic segmentation models against COCO ground-truth masks. Ships with three COCO-VOC subset datasets and three pretrained models (LRASPP MobileNetV3, DeepLabV3 MobileNetV3, FCN ResNet-50), viewable in 5 interactive FiftyOne panels (Data Analysis, Evaluation, Combined, Experiment, Schema & Table).
+## 라우팅
 
-## Environment Setup
 
-```bash
-conda env create -f environment.yml
-conda activate fiftyone-seg-eval
-```
+| 작업              | 스킬                  |
+| --------------- | ------------------- |
+| 이관 시작·재실행·부분 수정 | `migrate-dashboard` |
+| 속성 1개 추가·교체     | `port-attribute`    |
+| 커밋              | `commit-convention` |
 
-Python 3.10, PyTorch CPU, FiftyOne ≥ 0.23, scipy (Boundary IoU), Pillow, numpy.
 
-## Commands
+단순 질문은 직접 응답 가능.
 
-```bash
-# First-time full pipeline (inference + attrs + stats)
-make pipeline                        # default dataset (coco-val-voc-50)
-make pipeline DS=coco-val-voc-50b    # second dataset
-make pipeline DS=coco-val-voc-50c    # third dataset
+## 핵심 불변식
 
-# Every subsequent run (config.py changes auto-detected → attrs/stats regenerated)
-make run
-make run DS=coco-val-voc-50b
-make run DS=coco-val-voc-50c
+1. `**config.py`가 단일 진실 소스.** `PANEL_COLUMN_META` / `ATTRIBUTE_GROUPS` / `DATASETS` / `_EXPERIMENT_LABELS` 에만 등록 → 파이프라인·패널 자동 전파. 다른 파일 하드코딩 금지.
+2. **건물 속성은 랜덤 `generate` 금지.** 기하20/방사4 = 현재 24종이 실제 compute 함수에 연결됨. VLM 3종·기하 2종(bd_type_area_ratio/bd_type_count)은 미구현 백로그 — 추가 시 `port-attribute` 스킬 사용.
+3. **데이터 준비(TIF/SHP → FiftyOne 적재)는 이 프로젝트 외부.** 하네스는 데이터가 이미 FiftyOne에 있다고 가정한다.
 
-# After adding a new model: run inference, then launch
-make inference DS=<name>
-make run
+## 비자명 주의 사항
 
-# After editing config.py manually (make run does this automatically, but explicit targets exist)
-make regen-attr-all      # new/changed attribute → regenerate attrs + stats for all datasets
-make regen-stats-all     # new/changed metric or experiment → regenerate stats for all datasets
+- `plugins/fiftyone.yml` **ASCII 전용.** 한글·em-dash·원형숫자 포함 시 FiftyOne이 플러그인을 무음으로 무시.
+- `config.activate_dataset()` 는 모듈 전역(DATA_DIR 등)을 변경한다. 데이터셋별 작업은 반드시 `main.py`의 `_build_all_datasets` 루프 안에서 실행.
+- **속성 vs 메트릭 구분**: "예측 마스크를 바꾸면 이 값도 바뀌는가?" → yes=metric, no=attribute.
+- 일상 명령은 `make run` 하나면 충분 (config.py 변경 자동 감지 → attrs/stats 재생성).
 
-# FiftyOne DB cache problems
-make rebuild             # delete cached fo.Dataset and re-run main.py
+## 변경 이력
 
-# Cleanup
-make clean-all           # delete entire data_dir (includes masks/images — requires re-inference)
-```
 
-`main.py` compares `config.py` mtime against `sample_attrs.json` on startup and auto-reruns `generate_attrs.py` / `precompute_panel_stats.py` before launching the App when stale. `make run` is the only command needed day-to-day.
+| 날짜         | 변경 내용         | 대상  | 사유  |
+| ---------- | ------------- | --- | --- |
+| 2026-06-23 | 이관용 하네스 초기 구성 | 전체  | -   |
 
-## Architecture
 
-### Single source of truth: `config.py`
-
-Every column (attribute/metric), dataset, and experiment is declared once in `config.py`. Everything else reads from it dynamically — no hardcoded names in tools, pipelines, or panels.
-
-| Declared in `config.py` | Automatically propagated |
-|--------------------------|--------------------------|
-| `PANEL_COLUMN_META` (attribute) | generation logic, FO sample fields, sidebar, panel dropdowns, schema table, distribution charts, correlation heatmap |
-| `PANEL_COLUMN_META` (metric + compute) | panel dropdowns, records columns, correlation heatmap, schema table |
-| `ATTRIBUTE_GROUPS` | per-dataset attribute sets, sidebar groups, panel filters |
-| `DATASETS` | dataset dropdown, Makefile loop, path management |
-| `_EXPERIMENT_LABELS` | experiment dropdowns, comparison panels, panel_stats storage |
-
-### Data flow
-
-```
-tools/run_inference.py      →  data/masks/ + manifest.json
-tools/generate_attrs.py     →  data/sample_attrs.json
-tools/precompute_panel_stats.py  →  data/panel_stats.json   ← panels read ONLY this
-pipeline/dataset_builder.py →  fo.Dataset (seg-eval-<name>)
-pipeline/evaluation.py      →  FiftyOne evaluation results
-pipeline/app.py             →  fo.launch_app
-```
-
-`main.py` orchestrates all pipeline steps. Each dataset has its own data directory (`data/`, `data_coco_b/`, `data_coco_c/`) with `manifest.json`, `sample_attrs.json`, `panel_stats.json`, and mask subdirectories. Directory names follow the `data_dir` field in `config.DATASETS`, not the dataset key.
-
-### Plugin layer structure (plugins/seg_dashboard/)
-
-Dependencies flow strictly downward; lower layers never import from higher:
-
-```
-panels/       ← 5 concrete panels: PANEL_NAME, PANEL_LABEL, SECTIONS list only
-framework/    ← BasePanel: state management, section loop, callback routing
-sections/     ← PanelSection subclasses: UI widgets + chart calls
-charts/       ← BaseChart subclasses: return Plotly {"data","layout"} dicts; NO FiftyOne import
-stats.py      ← load_stats(dataset) + helper functions (reads panel_stats.json)
-```
-
-### panel_stats.json schema
-
-```jsonc
-{
-  "meta": { "dataset", "experiments", "default_experiment", "experiment_labels" },
-  "columns": { "<col>": { "kind": "attribute"|"metric", "type", "description", ... } },
-  "experiments": {
-    "<exp>": {
-      "records": [{"image_path", "<attr>", ..., "<metric>", ...}],  // PRIMARY SOURCE
-      "confusion_matrix": ...,   // pixel-level only
-      "per_class": ...,          // pixel-level only
-      "per_class_by_value": ..., // pixel-level only
-      "correlation": ...
-    }
-  }
-}
-```
-
-`records` is the single primary data source for all distributions, correlations, and trend charts. Pixel-only blocks require FiftyOne `report()` and cannot be derived from records.
-
-### Attribute vs Metric distinction
-
-- **Attribute** (`kind: "attribute"`): data-intrinsic, experiment-independent. Attached as `fo.Dataset` sample fields (visible in App sidebar). Generated by `generate_attrs.py`, stored in `sample_attrs.json`.
-- **Metric** (`kind: "metric"`): prediction-dependent, differs per experiment. Never attached via `sample_attrs`. Instead, `pipeline/evaluation.py` attaches `fiftyone_eval` metrics as `{metric}_{exp}` fields, and `dataset_builder.attach_derived_metric_fields()` does the same for `derived`/`mask` metrics (f1, f2, biou). All metrics appear in the App sidebar under **"Metrics · {model}"** groups.
-
-Test: "Does this value change if you swap the prediction mask?" → yes = metric, no = attribute.
-
-### `config.activate_dataset()` caveat
-
-`activate_dataset(name)` mutates module-level globals (`DATA_DIR`, `EXPERIMENTS`, etc.). All per-dataset operations must run inside `main.py`'s `_build_all_datasets` loop while that dataset's globals are active. Adding a step that reads config globals outside the loop will silently use the last-activated dataset's values.
-
-## Extension Recipes
-
-### New attribute (config.py only)
-
-```python
-# 1. Add to PANEL_COLUMN_META
-"weather": {
-    "kind": "attribute", "type": "categorical",
-    "description": "...", "values": ["sunny", "cloudy"],
-    "generate": {"method": "choice"},
-}
-# 2. Add key to ATTRIBUTE_GROUPS
-"full": ["time", "complexity", "count", "brightness", "density", "weather"],
-```
-Then: `make run` (auto-sync detects config.py change).
-
-### New metric (config.py + optional 1 function)
-
-```python
-# config.py — fiftyone_eval source (0 extra files)
-"iou": {"kind": "metric", "type": "numerical", "description": "...",
-        "compute": {"source": "fiftyone_eval", "field": "iou"}}
-
-# config.py — derived source (add 1 fn to _DERIVED_FNS in precompute_panel_stats.py)
-"f2": {"kind": "metric", ...,
-       "compute": {"source": "derived", "fn": "f2", "deps": ["precision", "recall"]}}
-# precompute_panel_stats.py: def _f2_from_pr(p, r): ...; _DERIVED_FNS["f2"] = _f2_from_pr
-
-# config.py — mask source (add 1 fn to _MASK_FNS in precompute_panel_stats.py)
-"hausdorff": {"kind": "metric", ...,
-              "compute": {"source": "mask", "fn": "hausdorff", "params": {"percentile": 95}}}
-# precompute_panel_stats.py: def _compute_hausdorff(manifest, exp, percentile=95): ...
-#                             _MASK_FNS["hausdorff"] = _compute_hausdorff
-```
-Then: `make run` (auto-sync) or `make regen-stats-all`.
-
-`derived` compute order is fixed: `fiftyone_eval → mask → derived`. Declare `deps` in the order they are passed as positional arguments to the function.
-
-### New experiment (model)
-
-```python
-# config.py
-_EXPERIMENT_LABELS = {"lraspp_mv3": "...", "my_model": "My Model"}
-# tools/run_inference.py
-MODEL_LOADERS["my_model"] = _load_my_model
-```
-Then: `make inference`, `make run`.
-
-### New dataset
-
-```python
-# config.py DATASETS dict
-"my-dataset": {"label": "...", "data_dir": ROOT_DIR / "data_my",
-               "zoo_name": "coco-2017", ..., "attributes": "full"}
-# Makefile DATASETS variable
-DATASETS = coco-val-voc-50 coco-val-voc-50b my-dataset
-```
-Then: `make pipeline DS=my-dataset`.
-
-Non-COCO data: replace `load_zoo_subset` in `run_inference.py`; keep `manifest.json` schema identical (`image_path`, `gt_mask_path`, `predictions: {exp: path}`).
-
-### New chart
-
-Create `plugins/seg_dashboard/charts/<name>.py` with a `BaseChart` subclass. Add `@register_chart(role)` decorator (if the chart is col_type-dispatched), then 1-line import in `charts/__init__.py`. No rebuild needed.
-
-```python
-from .base import BaseChart, _empty_figure
-from .registry import register_chart
-
-@register_chart("my_role")          # skip if no col_type dispatch (table, heatmap, etc.)
-class MyChart(BaseChart):
-    field_types = ("numerical",)    # which col_types this class handles
-    def build_figure(self, stats, field=None, params=None) -> dict:
-        # Must return {"data": [...], "layout": {...}}
-        # No data → return _empty_figure(msg), never raise
-        # NO FiftyOne import (numpy only)
-```
-
-After registering, `chart_for("my_role", "numerical")` returns `MyChart` — no if/else in sections needed.
-
-Shared constants (color palette): import `_COLORS` from `charts/_common.py`.
-
-### New section
-
-**Option A — declarative (preferred for field+chart combos):**
-Add `FieldSection(container=..., dist_role=..., metric_role=..., kind_filter=..., label=...)` directly in the panel's `SECTIONS` list. No new file needed. See `sections/field_section.py` docstring for when this applies.
-
-**Option B — custom PanelSection (for table/heatmap/multi-dataset logic):**
-Create `plugins/seg_dashboard/sections/<name>.py` with a `PanelSection` subclass. Use helpers: `add_dropdown`, `add_bins_slider`, `resolve_col_type` from `framework/widgets.py`. Add 1-line import to `sections/__init__.py`. Add instance to the desired panel's `SECTIONS` list.
-
-Anti-pattern: forcing special logic (multi-dataset records merge, per-class data, etc.) into `FieldSection` via extra flags → write a dedicated PanelSection instead.
-
-### New panel
-
-Create `plugins/seg_dashboard/panels/<name>.py`. Register in `panels/__init__.py`, `seg_dashboard/__init__.py`, and `fiftyone.yml` (1 line each). **`fiftyone.yml` must use ASCII only** — non-ASCII characters (Korean, em-dashes, circled numbers) cause FiftyOne to silently ignore the plugin with no error.
-
-### Extending BasePanel state
-
-To add state keys + callbacks without modifying `BasePanel.render()`:
-1. Override `STATE_DEFAULTS = {**BasePanel.STATE_DEFAULTS, "new_key": default}`
-2. Add `on_change_new_key(self, ctx)` method
-3. Override `_extra_callbacks()` returning `{"new_key": self.on_change_new_key}`
-
-## Anti-Patterns
-
-- Pixel/mask computation inside a panel render function → move to `precompute_panel_stats.py`
-- Hardcoded class names, metric names, or experiment names → read from stats/columns dynamically
-- Charts importing FiftyOne → charts use numpy only
-- Attaching a metric via `sample_attrs` / `generate_attrs` route → `dataset_builder.py` 가 `kind=="metric"` 항목을 attrs 부착 루프에서 제외. 메트릭은 `evaluation.py` 와 `attach_derived_metric_fields()` 가 실험별 `{metric}_{exp}` 필드로 사이드바 "Metrics · {model}" 그룹에 따로 부착한다
-- Non-ASCII characters in `fiftyone.yml` → plugin silently disappears from App
-- Reading `stats["fields"]` → removed; use `get_records(stats, exp)` instead
-- Hardcoding attribute names in `generate_attrs.py` → all definitions live in `PANEL_COLUMN_META`
-- Adding `if/elif` chains for new metrics/attributes → use dispatch dicts (`_DERIVED_FNS`, `_MASK_FNS`)
-- Adding state keys without registering callbacks in `_extra_callbacks()` → silent update failure
-- Calling `configure_sidebar()` outside the `_build_all_datasets` loop → wrong dataset config
-- Forcing complex logic (multi-experiment records merge, etc.) into `FieldSection` extra flags → write a dedicated `PanelSection` subclass instead
-- Duplicating `_COLORS` palette in new chart files → import from `charts/_common.py`
-- Writing `if col_type == "categorical": CatChart() else NumChart()` → use `chart_for(role, col_type)()`
-- Manually building `types.Dropdown` + `add_choice` loop + `.enum()` → use `add_dropdown()` from `framework/widgets.py`

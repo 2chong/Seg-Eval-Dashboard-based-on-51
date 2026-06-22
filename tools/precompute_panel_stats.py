@@ -115,52 +115,29 @@ def _f2_from_pr(p: float | None, r: float | None) -> float | None:
     return float(5 * p * r / denom) if denom > 0 else 0.0
 
 
+def _iou_from_pr(p: float | None, r: float | None) -> float | None:
+    """건물 픽셀 IoU — Jaccard 지수 (PR / (P+R−PR)).
+
+    precision × recall / (precision + recall − precision × recall)
+    와 동등하며, binary segmentation 에서 mIoU 의 단일 클래스 버전.
+    """
+    if p is None or r is None:
+        return None
+    denom = p + r - p * r
+    return float(p * r / denom) if denom > 0 else 0.0
+
+
 _DERIVED_FNS: dict[str, callable] = {
     "f1": _f1_from_pr,
     "f2": _f2_from_pr,
+    "iou": _iou_from_pr,
 }
-
-
-# ── mask source 사전 계산 함수 ────────────────────────────────────────────────
-
-def _compute_biou_for_exp(
-    manifest: list[dict],
-    exp_name: str,
-    dilation_ratio: float = 0.02,
-) -> dict[str, float | None]:
-    """experiment 별 예측 마스크로 per-sample biou 를 계산한다."""
-    biou_by_path: dict[str, float | None] = {}
-    class_indices = list(config.MASK_TARGETS.keys())
-
-    for entry in manifest:
-        preds = entry.get("predictions", {})
-        if isinstance(preds, str):
-            preds = {config.DEFAULT_EXPERIMENT: preds}
-
-        pred_path = preds.get(exp_name)
-        gt_path   = entry.get("gt_mask_path")
-
-        if not pred_path or not gt_path:
-            biou_by_path[entry["image_path"]] = None
-            continue
-        if not Path(pred_path).exists() or not Path(gt_path).exists():
-            biou_by_path[entry["image_path"]] = None
-            continue
-
-        gt_mask   = seg_utils.load_mask(gt_path)
-        pred_mask = seg_utils.load_mask(pred_path)
-        per_class = seg_utils.compute_biou(gt_mask, pred_mask, class_indices, dilation_ratio)
-        biou_by_path[entry["image_path"]] = (
-            sum(per_class.values()) / len(per_class) if per_class else None
-        )
-
-    return biou_by_path
 
 
 # mask fn 레지스트리: fn 이름 → (manifest, exp_name, params) → {image_path: float|None}
-_MASK_FNS: dict[str, callable] = {
-    "biou": _compute_biou_for_exp,
-}
+# 이진 세그멘테이션(건물/배경 2클래스)에서 mask source 메트릭은 불필요하므로 비워둔다.
+# iou 는 derived 방식(precision/recall 기반)으로 config 에 등록돼 있다.
+_MASK_FNS: dict[str, callable] = {}
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────────────────
@@ -420,7 +397,7 @@ def main() -> None:
     if not config.MANIFEST_PATH.exists():
         sys.exit(
             f"\n  Manifest not found: {config.MANIFEST_PATH}\n"
-            "  먼저  python tools/run_inference.py  를 실행하세요.\n"
+            "  먼저  python tools/build_manifest.py  를 실행하세요.\n"
         )
 
     manifest = seg_utils.load_manifest(config.MANIFEST_PATH)

@@ -92,9 +92,9 @@ ATTRIBUTE_GROUPS: dict[str, list[str]] = {
 
 ```python
 DATASETS: dict[str, dict] = {
-    "coco-val-voc-50":  { ..., "attributes": "full" },
-    "coco-val-voc-50b": { ..., "attributes": "full" },
-    "coco-val-voc-50c": { ..., "attributes": "full" },
+    "building-jungrang-2022":  { ..., "attributes": "full" },
+    "building-seocho-2022": { ..., "attributes": "full" },
+    "building-youngdeungpo-2022": { ..., "attributes": "full" },
 }
 ```
 
@@ -222,7 +222,7 @@ numerical_attrs = [
 make regen-attr-all
 
 # 특정 데이터셋만
-make regen-attr DS=coco-val-voc-50
+make regen-attr DS=building-jungrang-2022
 ```
 
 내부적으로 각 데이터셋에 대해 아래 두 스크립트를 순서대로 실행한다:

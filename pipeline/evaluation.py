@@ -10,7 +10,7 @@ evaluate_segmentations() 가 생성하는 {exp}_{metric} 필드를 실행 직후
 {metric}_{exp} 형태로 rename 한다 (configure_sidebar 의 endswith("_{exp}") 패턴에 맞추기 위함).
 
 최종 sample 필드 이름:
-  accuracy_{exp}   — 샘플별 픽셀 정확도  (예: accuracy_lraspp_mv3)
+  accuracy_{exp}   — 샘플별 픽셀 정확도  (예: accuracy_segformer_init)
   recall_{exp}     — per-sample recall
   precision_{exp}  — per-sample precision
 """
@@ -72,7 +72,7 @@ def run(dataset: fo.Dataset) -> dict[str, object]:
     if not all_results:
         print(
             "  ⚠  No experiments evaluated."
-            "  Run python tools/run_inference.py first."
+            "  Run python tools/build_manifest.py first."
         )
 
     print("Evaluation done.")

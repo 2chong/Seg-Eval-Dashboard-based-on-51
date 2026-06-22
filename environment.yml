@@ -1,22 +1,19 @@
 name: fiftyone-seg-eval
 
 channels:
-  - pytorch          # PyTorch CPU wheels
-  - conda-forge      # pycocotools, matplotlib, scipy, etc.
+  - conda-forge      # rasterio, geopandas, shapely, scipy, matplotlib, etc.
   - defaults
 
 dependencies:
   - python=3.10
 
-  # PyTorch CPU-only (from pytorch channel)
-  - pytorch>=2.1
-  - torchvision>=0.16
-  - cpuonly
-
-  # System / data tools (conda-forge)
-  - pycocotools>=2.0   # COCO annotation parsing (required by FiftyOne zoo)
+  # 공간 데이터 처리 (conda-forge)
   - matplotlib>=3.7    # confusion matrix PNG export
-  - scipy>=1.10        # boundary IoU: scipy.ndimage.binary_erosion
+  - scipy>=1.10        # scipy.ndimage.binary_erosion
+  - rasterio>=1.3      # GeoTIFF windowed read
+  - geopandas>=0.14    # SHP 파싱
+  - shapely>=2.0       # 벡터 연산
+  - pyproj>=3.6        # 좌표계 변환
   - pip
 
   - pip:

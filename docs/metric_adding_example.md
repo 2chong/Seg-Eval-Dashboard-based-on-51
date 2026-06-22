@@ -262,9 +262,9 @@ make regen-stats-all
 
 내부 실행:
 ```
-python tools/precompute_panel_stats.py --dataset coco-val-voc-50
-python tools/precompute_panel_stats.py --dataset coco-val-voc-50b
-python tools/precompute_panel_stats.py --dataset coco-val-voc-50c
+python tools/precompute_panel_stats.py --dataset building-jungrang-2022
+python tools/precompute_panel_stats.py --dataset building-seocho-2022
+python tools/precompute_panel_stats.py --dataset building-youngdeungpo-2022
 ```
 
 `generate_attrs.py` 는 실행하지 않는다 — `sample_attrs.json` 은 그대로 재사용된다.
@@ -324,7 +324,7 @@ FiftyOne `evaluate_segmentations()` 가 `{exp}_{field}` 로 생성한 샘플 필
     "description": "...",
     "compute": {"source": "fiftyone_eval", "field": "recall"},
     #                                               ↑
-    #  rename 후 recall_{exp} 샘플 필드에서 읽는다 (예: recall_lraspp_mv3)
+    #  rename 후 recall_{exp} 샘플 필드에서 읽는다 (예: recall_segformer_init)
 }
 ```
 

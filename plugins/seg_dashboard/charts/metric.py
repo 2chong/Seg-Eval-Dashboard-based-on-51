@@ -31,7 +31,7 @@ def _metric_label(metric: str) -> str:
 class CategoricalMetricChart(BaseChart):
     """categorical 속성 값별 평균 메트릭 bar chart (records 기반).
 
-    예: time=day / time=night 각각의 mean recall(또는 다른 메트릭).
+    예: bd_small_ratio 구간별 / vegetation_ratio 값별 mean recall(또는 다른 메트릭).
     """
 
     field_types = ("categorical",)

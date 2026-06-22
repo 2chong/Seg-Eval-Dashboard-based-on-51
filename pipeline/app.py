@@ -8,7 +8,7 @@ pipeline/app.py
 
 App 에서 확인 가능한 것:
   - 이미지 그리드 + GT/예측 마스크 오버레이 (ground_truth, predictions_<exp> 필드)
-  - Sample Attributes 사이드바 그룹: time, complexity, count, brightness, density 등
+  - Sample Attributes 사이드바 그룹: bd_s, bd_portion, brightness_mean, shadow_area_ratio 등
   - Metrics · {model} 사이드바 그룹 (experiment 당 1개):
       recall_{exp}, precision_{exp}, accuracy_{exp}  ← fiftyone_eval
       f1_{exp}, f2_{exp}, biou_{exp}                 ← derived/mask
@@ -85,7 +85,7 @@ def launch(dataset: fo.Dataset) -> None:
     print("    ground_truth / predictions 눈 아이콘으로 각각 on/off")
     print()
     print("  [Filters 사이드바 그룹]")
-    print("  → Sample Attributes  : time, complexity, count, brightness, density 등")
+    print("  → Sample Attributes  : bd_s, bd_portion, brightness_mean, shadow_area_ratio 등")
     print("  → Metrics · {model}  : recall_{exp}, precision_{exp}, f1_{exp}, biou_{exp} 등")
     print("  → 위 필드로 정렬(Sort by)도 가능")
     print()

@@ -8,9 +8,9 @@ Shows:   Dataset selector + attribute summary + distribution histograms
          + dataset chips multi-select + dataset distribution comparison.
 
 Comparison axis: DATASETS (not experiments).
-Attribute values (brightness, complexity, time, count, density) are
-per-image and experiment-independent — the meaningful comparison is
-"how does this attribute differ across datasets?", not across models.
+Attribute values (geometric: bd_s/bd_portion/..., radiometric: brightness_mean/...)
+are per-patch and experiment-independent — the meaningful
+comparison is "how does this attribute differ across datasets?", not across models.
 
 State keys:
   "selected_datasets" -- list of currently selected dataset keys

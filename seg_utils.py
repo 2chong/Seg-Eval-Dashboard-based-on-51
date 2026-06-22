@@ -42,8 +42,8 @@ def load_mask(path: str | Path) -> np.ndarray:
 def save_manifest(entries: list[dict], path: str | Path) -> None:
     """Persist a list of ``{image_path, gt_mask_path, pred_mask_path}`` dicts.
 
-    This file is the only coupling between ``tools/run_inference.py`` and
-    ``main.py`` — no FiftyOne zoo database access is needed after inference.
+    This file is the only coupling between ``tools/build_manifest.py`` and
+    ``main.py`` — no FiftyOne zoo database access is needed after manifest build.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

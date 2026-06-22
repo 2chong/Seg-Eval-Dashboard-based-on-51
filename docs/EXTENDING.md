@@ -94,32 +94,40 @@ DATASETS = {
 
 ```python
 # config.DATASETS 에 추가
-"my-dataset": {
-    "label":       "My Custom Dataset",
-    "data_dir":    ROOT_DIR / "data_my",
-    "zoo_name":    "coco-2017",          # 또는 None (자체 데이터면 run_inference 커스터마이즈)
-    "split":       "validation",
-    "classes":     None,
-    "num_samples": 200,
-    "seed":        42,
-    "attr_seed":   42,
-    "attributes":  "full",
+"building-myregion-2023": {
+    "label":    "My Region 2023",
+    "data_dir": ROOT_DIR / "data_myregion",
+    "region":   "myregion",
+    "year":     2023,
+    "attributes": "all",
 }
 ```
 
 ```makefile
 # Makefile 상단 DATASETS 변수에 추가
-DATASETS = coco-val-voc-50 coco-val-voc-50b my-dataset
+DATASETS = building-jungrang-2022 ... building-myregion-2023
 ```
 
-이후 `make pipeline DS=my-dataset` 으로 전체 파이프라인 실행.
+이후 `make pipeline DS=building-myregion-2023` 으로 전체 파이프라인 실행.
 
-**자체 데이터셋(비-COCO)인 경우**:
-- `tools/run_inference.py`의 `load_zoo_subset`을 자신의 데이터 로더로 교체
-- `manifest.json` 스키마는 동일하게 유지:
-  ```json
-  {"image_path": "...", "gt_mask_path": "...", "predictions": {"exp_name": "..."}}
-  ```
+**`manifest.json` 스키마** (`tools/build_manifest.py` 가 생성):
+```json
+{
+  "image_path": "...", "gt_mask_path": "...",
+  "predictions": {"exp_name": "..."},
+  "patch_id": "...",
+  "geo": {"crs": "EPSG:5186", "bbox": [x0,y0,x1,y1], "centroid_lon": 0.0, "centroid_lat": 0.0}
+}
+```
+
+**소스 데이터 구조** (`config.SOURCE_DIR` 하위):
+```
+source_data/data/aerial_image/<region>/<year>/*.tif
+source_data/data/gt_shp/<region>/<year>/*.shp
+source_data/data/pred_shp/<region>/<year>/<exp_name>/*.shp   (실험별)
+```
+
+소스 데이터가 준비되면 `make pipeline DS=building-myregion-2023` 한 번으로 완료.
 
 ---
 
@@ -219,40 +227,37 @@ make run   # config.py 변경을 감지해 stats 자동 재생성
 
 ## 레시피 5: 새 실험(모델) 추가
 
-**건드리는 파일: `config.py` + `tools/run_inference.py`**
+**건드리는 파일: `config.py` + 예측 SHP 준비**
 
 ```python
 # config._EXPERIMENT_LABELS 에 추가
-# (기본 제공: lraspp_mv3, deeplabv3_mv3, fcn_r50)
+# (기본 제공: segformer_init 등)
 _EXPERIMENT_LABELS = {
-    "lraspp_mv3":    "LRASPP MobileNetV3-Large",
-    "deeplabv3_mv3": "DeepLabV3 MobileNetV3-Large",
-    "fcn_r50":       "FCN ResNet-50",
-    "my_model":      "My Custom Model",              # 추가
+    "segformer_init": "SegFormer 초기 모델",
+    "my_model":       "My New Model",           # 추가
 }
 ```
 
+`config.EXPERIMENTS` 가 자동으로 생성되는 대신, `pred_dir` 키로 SHP 경로를 지정한다:
 ```python
-# run_inference.py 에 로더 추가
-def _load_my_model():
-    from my_package import MyModel
-    model = MyModel.load_pretrained()
-    return model, my_preprocess_transform
+# config.py 의 EXPERIMENTS 딕셔너리 구조 (activate_dataset 호출 후 동적 생성)
+# "my_model": {"label": "My New Model", "pred_dir": DATA_DIR / "pred_shp" / "my_model"}
+```
 
-MODEL_LOADERS["my_model"] = _load_my_model
+예측 SHP 준비:
+```
+source_data/data/pred_shp/<region>/<year>/my_model/*.shp  ← 모델 추론 결과 배치
 ```
 
 실행:
 ```bash
-make inference   # 새 모델 추론 (1회)
-make run         # config.py 변경 감지 -> stats 자동 재생성 후 App 실행
+make manifest DS=<dataset>   # 새 SHP 반영해 마스크·manifest 재생성 (1회)
+make run                     # config.py 변경 감지 → stats 자동 재생성 후 App 실행
 ```
 
 자동으로 따라오는 것:
 - 실험 드롭다운, Experiment 비교 패널
 - panel_stats.json에 새 exp 블록
-
-> `run_inference.py` 실행 시 config.EXPERIMENTS와 MODEL_LOADERS의 불일치를 자동 경고한다.
 
 ---
 
@@ -409,7 +414,7 @@ class MyPanel(BasePanel):
 - `Labels` — `ground_truth` + `predictions_{exp}` 필드
 - **`Sample Attributes`** — `PANEL_COLUMN_META` 의 `kind=="attribute"` 이고 실제 schema 에 있는 필드
 - **`Metrics · {model}`** (실험당 1개) — `f.endswith(f"_{exp_name}")` 이고 수치형인 필드
-  (e.g. `recall_lraspp_mv3`, `f1_lraspp_mv3`, `biou_lraspp_mv3`)
+  (e.g. `recall_segformer_init`, `f1_segformer_init`, `iou_segformer_init`)
 
 하드코딩된 필드명 없음 — `PANEL_COLUMN_META` 와 `EXPERIMENTS` 에서 모두 동적 읽기.
 

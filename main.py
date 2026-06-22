@@ -4,13 +4,13 @@ main.py
 얇은 오케스트레이터. 분석 파이프라인을 순서대로 호출한다.
 
 실행 순서 (전체):
-  1. python tools/run_inference.py           ← 1회성: 마스크 생성 + manifest.json
-  2. python tools/generate_attrs.py          ← 1회성: 속성 생성 + sample_attrs.json
+  1. python tools/build_manifest.py          ← 1회성: 패치 PNG·마스크 생성 + manifest.json
+  2. python tools/generate_attrs.py          ← 1회성: SQLite에서 속성 읽기 + sample_attrs.json
   3. python tools/precompute_panel_stats.py  ← 1회성(또는 데이터 변경 시): 패널용 집계
   4. python main.py                          ← 매 실행: 평가 + App
 
 데이터셋 선택 (기본: config.DEFAULT_DATASET):
-  python main.py --dataset coco-val-voc-50
+  python main.py --dataset building-seocho-2022
 
 pipeline 단계:
   dataset_builder  →  evaluation  →  app
@@ -60,18 +60,18 @@ def _cleanup_stale_fo_datasets() -> None:
     """불필요한 FiftyOne 데이터셋을 App 시작 시 정리한다.
 
     - 구버전 seg-eval-* 데이터셋 (config.DATASETS 에 없는 것)
-    - zoo 원본 데이터셋 (run_inference.py 가 남겼을 경우 대비)
+    - 데이터셋 키와 이름이 같은 FiftyOne 잔여 데이터셋
     """
-    valid_eval = {f"seg-eval-{k}" for k in config.DATASETS}
-    zoo_names  = set(config.DATASETS.keys())   # "coco-val-voc-50", "coco-val-voc-50b" 등
+    valid_eval    = {f"seg-eval-{k}" for k in config.DATASETS}
+    dataset_names = set(config.DATASETS.keys())   # "building-jungrang-2022" 등
 
     for name in fo.list_datasets():
         if name.startswith("seg-eval-") and name not in valid_eval:
             fo.delete_dataset(name)
             print(f"  [cleanup] Deleted stale seg-eval dataset: {name}")
-        elif name in zoo_names:
+        elif name in dataset_names:
             fo.delete_dataset(name)
-            print(f"  [cleanup] Removed zoo dataset from App: {name}")
+            print(f"  [cleanup] Removed stale dataset from App: {name}")
 
 
 def _run_tool(script: str, dataset: str) -> None:
@@ -182,7 +182,7 @@ def main() -> None:
     if not config.MANIFEST_PATH.exists():
         sys.exit(
             f"\n  Manifest not found: {config.MANIFEST_PATH}\n"
-            "  먼저  python tools/run_inference.py  를 실행하세요.\n"
+            "  먼저  python tools/build_manifest.py  를 실행하세요.\n"
         )
 
     if not config.PANEL_STATS_PATH.exists():
