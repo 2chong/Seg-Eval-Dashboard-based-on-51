@@ -262,9 +262,9 @@ make regen-stats-all
 
 내부 실행:
 ```
-python tools/precompute_panel_stats.py --dataset building-jungrang-2022
-python tools/precompute_panel_stats.py --dataset building-seocho-2022
-python tools/precompute_panel_stats.py --dataset building-youngdeungpo-2022
+python tools/precompute_panel_stats.py --dataset jungrang_2022
+python tools/precompute_panel_stats.py --dataset seocho_2022
+python tools/precompute_panel_stats.py --dataset youngdeungpo_2022
 ```
 
 `generate_attrs.py` 는 실행하지 않는다 — `sample_attrs.json` 은 그대로 재사용된다.

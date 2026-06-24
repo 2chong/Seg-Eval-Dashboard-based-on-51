@@ -53,7 +53,12 @@ class MetricDistributionSection(PanelSection):
             return
 
         all_metrics = list_metrics(stats)
-        available   = [m for m in all_metrics if m in records[0]] if all_metrics else []
+        # records[0] 이 all-background 패치(metric 키 없음)일 수 있으므로
+        # 메트릭 키가 존재하는 첫 번째 레코드를 기준으로 확인한다.
+        first_with_metrics = next(
+            (r for r in records if any(m in r for m in all_metrics)), None
+        )
+        available = [m for m in all_metrics if m in first_with_metrics] if first_with_metrics else []
         if not available:
             fig = _empty_figure("No metrics in records.<br>Re-run precompute_panel_stats.py.")
             grp.plot("figure", data=fig["data"], layout=fig["layout"])

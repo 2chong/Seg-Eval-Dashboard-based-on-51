@@ -71,7 +71,10 @@ import config
 
 _p = argparse.ArgumentParser(add_help=False)
 _p.add_argument("--dataset", default=None)
-config.activate_dataset(_p.parse_known_args()[0].dataset)
+_p.add_argument("--force", action="store_true", help="최신 상태여도 강제 재집계")
+_parsed = _p.parse_known_args()[0]
+config.activate_dataset(_parsed.dataset)
+FORCE: bool = _parsed.force
 
 import seg_utils
 from pipeline import dataset_builder, evaluation
@@ -86,6 +89,63 @@ _SUB_EVAL_KEY = "panel_sub"
 
 # panel_stats.json 에 포함할 컬럼 메타 키 (generate/compute 는 내부 전용)
 _DISPLAY_KEYS = {"kind", "type", "description", "values", "range", "unit"}
+
+
+# ── Staleness 판단 ────────────────────────────────────────────────────────────
+
+def _is_fresh() -> tuple[bool, str]:
+    """panel_stats.json 이 최신 상태인지 확인한다.
+
+    Returns:
+        (True, "최신 상태") — 건너뜀 가능
+        (False, reason)    — 재집계 필요
+    """
+    stats_path = config.PANEL_STATS_PATH
+    if not stats_path.exists():
+        return False, "panel_stats.json 없음"
+
+    stats_mtime = stats_path.stat().st_mtime
+
+    if config.MANIFEST_PATH.stat().st_mtime > stats_mtime:
+        return False, "manifest.json 갱신됨"
+
+    if config.ATTRS_PATH.exists() and config.ATTRS_PATH.stat().st_mtime > stats_mtime:
+        return False, "sample_attrs.json 갱신됨"
+
+    with open(stats_path, encoding="utf-8") as _f:
+        existing = json.load(_f)
+
+    # 메트릭 키셋 비교
+    current_metrics = {
+        k for k, v in config.PANEL_COLUMN_META.items()
+        if v.get("kind") == "metric"
+    }
+    existing_metrics = {
+        k for k, v in existing.get("columns", {}).items()
+        if v.get("kind") == "metric"
+    }
+    if current_metrics != existing_metrics:
+        added   = current_metrics - existing_metrics
+        removed = existing_metrics - current_metrics
+        parts   = []
+        if added:
+            parts.append(f"추가={added}")
+        if removed:
+            parts.append(f"제거={removed}")
+        return False, f"메트릭 변경 ({', '.join(parts)})"
+
+    # 미평가 실험 확인 (manifest 에 predictions 로 등록된 것 기준)
+    manifest_data = seg_utils.load_manifest(config.MANIFEST_PATH)
+    available_exps: set[str] = set()
+    for entry in manifest_data:
+        available_exps.update(entry.get("predictions", {}).keys())
+
+    existing_exps = set(existing.get("meta", {}).get("experiments", []))
+    new_exps = available_exps - existing_exps
+    if new_exps:
+        return False, f"미평가 실험: {new_exps}"
+
+    return True, "최신 상태"
 
 
 # ── 메트릭 레지스트리 ─────────────────────────────────────────────────────────
@@ -138,6 +198,39 @@ _DERIVED_FNS: dict[str, callable] = {
 # 이진 세그멘테이션(건물/배경 2클래스)에서 mask source 메트릭은 불필요하므로 비워둔다.
 # iou 는 derived 방식(precision/recall 기반)으로 config 에 등록돼 있다.
 _MASK_FNS: dict[str, callable] = {}
+
+
+# ── per-sample 이진 마스크 metrics ────────────────────────────────────────────
+# FiftyOne evaluate_segmentations 는 building pixel 이 없는 all-background 패치에서
+# precision/recall/accuracy 를 0/0 → None 으로 저장한다.
+# _build_records 는 None 값을 record 에 넣지 않으므로, 해당 샘플의 record 에는
+# metric 키가 전혀 없게 된다. 마스크에서 직접 계산해 metric 키를 보장한다.
+#
+# zero_division 규칙 (sklearn zero_division=1 과 동일):
+#   tp+fp=0 → precision=1.0  (positive prediction 자체가 없으면 오탐 없음)
+#   tp+fn=0 → recall=1.0     (positive GT 자체가 없으면 누락 없음)
+#   파생 메트릭(f1/f2/iou)은 p=r=1.0 을 그대로 받아 1.0이 된다.
+
+def _binary_metrics_from_masks(
+    gt_mask: np.ndarray,
+    pred_mask: np.ndarray,
+) -> dict[str, float]:
+    """건물(1) 클래스 per-sample binary segmentation metrics.
+
+    Returns: {"precision": f, "recall": f, "accuracy": f}
+    """
+    gt_b   = (gt_mask   == 1)
+    pred_b = (pred_mask == 1)
+    tp     = int((gt_b  &  pred_b).sum())
+    fp     = int((~gt_b &  pred_b).sum())
+    fn     = int((gt_b  & ~pred_b).sum())
+    tn     = int((~gt_b & ~pred_b).sum())
+    total  = tp + fp + fn + tn
+    return {
+        "precision": float(tp) / (tp + fp)     if (tp + fp) > 0 else 1.0,
+        "recall":    float(tp) / (tp + fn)     if (tp + fn) > 0 else 1.0,
+        "accuracy":  float(tp + tn) / total    if total      > 0 else 0.0,
+    }
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────────────────
@@ -211,10 +304,28 @@ def _build_records(
 
         computed: dict[str, float | None] = {}
 
-        # 1. fiftyone_eval: {field}_{exp} 샘플 필드에서 읽기 (메트릭명_모델명 순)
+        # 1. fiftyone_eval: {field}_{exp} 샘플 필드에서 읽기.
+        # all-background 패치(building=0)는 FiftyOne 이 0/0=None 으로 저장하므로
+        # None 이면 마스크에서 직접 계산한다 (precision=recall=0, accuracy=1).
+        _mask_cache: dict[str, float] | None = None
         for mname, spec in fo_eval_metrics.items():
             fo_field = f"{spec['compute']['field']}_{exp_name}"
-            computed[mname] = _get_scalar(sample, fo_field)
+            val = _get_scalar(sample, fo_field)
+            if val is None:
+                if _mask_cache is None:
+                    gt_seg   = sample.get_field("ground_truth")
+                    pred_seg = sample.get_field(f"predictions_{exp_name}")
+                    gt_path   = getattr(gt_seg,   "mask_path", None)
+                    pred_path = getattr(pred_seg,  "mask_path", None)
+                    if gt_path and pred_path:
+                        _mask_cache = _binary_metrics_from_masks(
+                            seg_utils.load_mask(gt_path),
+                            seg_utils.load_mask(pred_path),
+                        )
+                    else:
+                        _mask_cache = {}
+                val = _mask_cache.get(spec["compute"]["field"])
+            computed[mname] = val
 
         # 2. mask: 사전 계산된 dict 에서 조회
         for mname, spec in mask_metrics.items():
@@ -399,6 +510,13 @@ def main() -> None:
             f"\n  Manifest not found: {config.MANIFEST_PATH}\n"
             "  먼저  python tools/build_manifest.py  를 실행하세요.\n"
         )
+
+    if not FORCE:
+        fresh, reason = _is_fresh()
+        if fresh:
+            print(f"  ✓ [{config.ACTIVE_DATASET}] 최신 상태 — 건너뜀. (강제 재집계: --force)")
+            return
+        print(f"  → [{config.ACTIVE_DATASET}] stale: {reason}")
 
     manifest = seg_utils.load_manifest(config.MANIFEST_PATH)
     print(f"Manifest loaded: {len(manifest)} entries")

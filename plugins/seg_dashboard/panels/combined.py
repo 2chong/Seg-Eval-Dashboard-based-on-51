@@ -23,7 +23,7 @@ from ..sections import (
 
 
 class CombinedPanel(BasePanel):
-    PANEL_NAME  = "seg_combined"
+    PANEL_NAME  = "seg_3_combined"
     PANEL_LABEL = "(3) Combined"
 
     SECTIONS = [

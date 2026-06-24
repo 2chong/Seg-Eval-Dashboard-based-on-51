@@ -1,23 +1,17 @@
 """
 tools/generate_attrs.py
 ───────────────────────
-1회성 스크립트: 샘플별 **intrinsic attribute** 를 계산해 data/sample_attrs.json 에 저장한다.
+샘플별 intrinsic attribute를 직접 계산해 sample_attrs.json에 저장한다.
 
-intrinsic attribute = 예측·평가와 무관하게 이미지 자체에서 결정되는 속성.
-어떤 속성을 생성할지는 두 단계 규칙으로 결정된다:
-  1. PANEL_COLUMN_META (규칙 라이브러리) — kind="attribute" + generate 키 있는 항목 전체.
-  2. ATTRIBUTE_GROUPS + 각 데이터셋 "attributes" 키 (그룹 선택) — 데이터셋마다 쓸 속성을 지정.
-  config.dataset_attribute_keys() 가 이 두 단계를 합쳐 최종 키 목록을 반환한다.
+compute.source별 처리:
+  "geometric"   → GT SHP + patch geometry → pipeline/attributes/geometric.py
+  "radiometric" → TIF windowed read       → pipeline/attributes/radiometric.py
 
-generate.method 별 생성 규칙:
-  "choice"  → rng.choice(meta["values"])
-  "float"   → rng.uniform(*meta["range"]), round(…, generate["round"])
-  "int"     → rng.randint(*meta["range"])
+패치 geometry는 manifest의 geo.bbox에서 복원한다 (build_manifest.py가 저장한 값).
+결과는 sample_attrs.json에 캐싱된다.
+수식 변경 시 make regen-attr [DS=...] 로 강제 재계산.
 
-metric (biou, recall 등 예측 의존 값) 은 이 스크립트의 대상이 아님:
-  precompute_panel_stats.py 가 experiment 별로 계산한다.
-
-Run once (after run_inference.py):
+Run (after build_manifest.py):
     python tools/generate_attrs.py [--dataset <name>]
 """
 
@@ -25,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import sys
 from pathlib import Path
 
@@ -42,113 +35,223 @@ config.activate_dataset(_p.parse_known_args()[0].dataset)
 
 import seg_utils
 
+try:
+    import numpy as np
+    import geopandas as gpd
+    import rasterio
+    from shapely.geometry import box as shapely_box
+except ImportError as exc:
+    sys.exit(
+        f"필수 패키지 미설치.\n  {exc}\n"
+        "  pip install rasterio geopandas shapely numpy"
+    )
 
-def _generate_value(meta: dict, rng: random.Random):
-    """PANEL_COLUMN_META 한 항목의 generate 스펙에 따라 값을 생성한다.
+from pipeline.attributes.geometric import compute_geometric
+from pipeline.attributes.radiometric import (
+    compute_radiometric,
+    compute_shadow_ratio,
+    compute_vegetation_ratio,
+)
 
-    null_prob 지정 시 해당 확률로 None(JSON null) 을 반환한다.
-    """
-    gen    = meta.get("generate", {})
-    method = gen.get("method")
+RESOLUTION_M = 0.25  # 소스와 동일: 0.25 m/pixel
 
-    if gen.get("null_prob", 0.0) > 0.0 and rng.random() < gen["null_prob"]:
+
+# ── 헬퍼 ─────────────────────────────────────────────────────────────────────
+
+def _find_single_file(directory: Path, pattern: str) -> Path | None:
+    matches = list(directory.glob(pattern))
+    if not matches:
         return None
-
-    if method == "choice":
-        return rng.choice(meta["values"])
-
-    if method == "float":
-        lo, hi = meta.get("range", [0.0, 1.0])
-        return round(rng.uniform(lo, hi), gen.get("round", 3))
-
-    if method == "int":
-        lo, hi = meta.get("range", [0, 50])
-        return rng.randint(int(lo), int(hi))
-
-    return None
+    if len(matches) > 1:
+        print(f"  [warn] {directory}/{pattern} 여러 매칭 → 첫 번째 사용: {matches[0].name}")
+    return matches[0]
 
 
-def _attr_schema() -> dict[str, dict]:
-    """이 데이터셋에 부착할 attribute 항목만 반환한다.
+def _build_schema() -> dict[str, dict[str, str]]:
+    """활성 데이터셋의 attribute 키를 source별로 분류한다.
 
-    config.dataset_attribute_keys() 가 데이터셋 그룹을 해석하고,
-    그 키 중 generate 키가 있는 항목만 생성 대상이다.
+    Returns:
+        {"geometric": {key: field}, "radiometric": {key: field}}
     """
     active_keys = set(config.dataset_attribute_keys(config.ACTIVE_DATASET))
-    return {
-        key: meta
-        for key, meta in config.PANEL_COLUMN_META.items()
-        if meta.get("kind") == "attribute" and "generate" in meta and key in active_keys
-    }
+    schema: dict[str, dict[str, str]] = {"geometric": {}, "radiometric": {}}
+    for key, meta in config.PANEL_COLUMN_META.items():
+        if meta.get("kind") != "attribute" or key not in active_keys:
+            continue
+        source = meta.get("compute", {}).get("source")
+        field = meta.get("compute", {}).get("field", key)
+        if source in schema:
+            schema[source][key] = field
+        else:
+            print(f"  [warn] 알 수 없는 compute.source '{source}' ({key}) → 건너뜀", file=sys.stderr)
+    return schema
 
 
-def compute_random_attrs(
-    manifest: list[dict],
-    base_seed: int,
-) -> dict[str, dict]:
-    """PANEL_COLUMN_META 의 attribute 스키마를 읽어 샘플별 속성값을 생성한다.
+def _patch_geom_from_entry(entry: dict):
+    """manifest 엔트리의 geo.bbox로 패치 Shapely geometry를 복원한다."""
+    bbox = entry.get("geo", {}).get("bbox")
+    if bbox is None or len(bbox) != 4:
+        return None
+    return shapely_box(*bbox)
 
-    각 속성은 독립된 RNG (seed="{base_seed}:{field}") 를 사용한다.
-    새 속성을 추가해도 기존 속성의 생성값이 변하지 않는다.
+
+def _intersect_buildings(gdf: gpd.GeoDataFrame, patch_geom) -> gpd.GeoDataFrame:
+    """GDF에서 patch_geom과 교차하는 건물만 필터링한다."""
+    candidates = list(gdf.sindex.intersection(patch_geom.bounds))
+    if not candidates:
+        return gdf.iloc[0:0].copy()
+    cands = gdf.iloc[candidates]
+    return cands[cands.geometry.intersects(patch_geom)].copy()
+
+
+def _read_raster_window(tif_path: Path, patch_geom) -> np.ndarray | None:
+    """TIF에서 패치 영역을 windowed read해 (bands, H, W) ndarray를 반환한다.
+
+    패치 geometry는 EPSG:5186 기준이며, TIF CRS가 다른 경우 bounds를
+    TIF CRS로 변환한 뒤 windowed read를 수행한다.
     """
-    schema = _attr_schema()
-    rngs   = {field: random.Random(f"{base_seed}:{field}") for field in schema}
+    minx, miny, maxx, maxy = patch_geom.bounds
+    # 픽셀 크기는 5186 기준 거리(m)로 계산 — 마스크와 격자 일치
+    cols_px = max(1, int(round((maxx - minx) / RESOLUTION_M)))
+    rows_px = max(1, int(round((maxy - miny) / RESOLUTION_M)))
+    try:
+        with rasterio.open(str(tif_path)) as src:
+            from rasterio.windows import from_bounds as window_from_bounds
+            from rasterio.warp import transform_bounds
+            # TIF CRS가 EPSG:5186이 아니면 bounds를 TIF CRS로 변환
+            win_minx, win_miny, win_maxx, win_maxy = minx, miny, maxx, maxy
+            if src.crs is not None and src.crs.to_epsg() != 5186:
+                win_minx, win_miny, win_maxx, win_maxy = transform_bounds(
+                    "EPSG:5186", src.crs, minx, miny, maxx, maxy
+                )
+            window = window_from_bounds(win_minx, win_miny, win_maxx, win_maxy, transform=src.transform)
+            data = src.read(
+                out_shape=(src.count, rows_px, cols_px),
+                window=window,
+                resampling=rasterio.enums.Resampling.bilinear,
+                boundless=True,
+                fill_value=0,
+            )
+        return data
+    except Exception as exc:
+        print(f"  [warn] TIF windowed read 실패: {exc}", file=sys.stderr)
+        return None
 
-    updates: dict[str, dict] = {}
-    for entry in manifest:
-        updates[entry["image_path"]] = {
-            field: _generate_value(meta, rngs[field])
-            for field, meta in schema.items()
-        }
 
-    return updates
-
+# ── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     print("=" * 65)
-    print("  Sample Attribute Generation  (intrinsic attributes only)")
+    print(f"  Sample Attribute Generation  — {config.ACTIVE_DATASET}")
     print("=" * 65)
 
     if not config.MANIFEST_PATH.exists():
         sys.exit(
             f"Manifest not found: {config.MANIFEST_PATH}\n"
-            "Please run  python tools/run_inference.py  first."
+            "먼저  python tools/build_manifest.py  를 실행하세요."
         )
 
-    schema   = _attr_schema()
-    print(f"Attribute schema: {list(schema.keys())}  (from PANEL_COLUMN_META)")
+    schema = _build_schema()
+    print(f"geometric  ({len(schema['geometric'])}): {list(schema['geometric'].keys())}")
+    print(f"radiometric({len(schema['radiometric'])}): {list(schema['radiometric'].keys())}")
 
     manifest = seg_utils.load_manifest(config.MANIFEST_PATH)
-    print(f"Manifest loaded:  {len(manifest)} entries")
+    print(f"Manifest: {len(manifest)} entries\n")
 
-    updates = compute_random_attrs(manifest, config.ATTR_SEED)
+    # ── 데이터 소스 준비 ─────────────────────────────────────────────────────
+    tif_path = gt_gdf = None
 
-    # 속성별 요약 출력
+    if schema["radiometric"]:
+        tif_dir = config.SOURCE_DIR / "data" / "aerial_image" / config.REGION / str(config.YEAR)
+        tif_path = _find_single_file(tif_dir, "*.tif")
+        if tif_path is None:
+            sys.exit(f"항공영상 TIF 없음: {tif_dir}/*.tif")
+        print(f"TIF: {tif_path}")
+
+    if schema["geometric"]:
+        gt_shp_dir = config.SOURCE_DIR / "data" / "gt_shp" / config.REGION / str(config.YEAR)
+        gt_shp_path = _find_single_file(gt_shp_dir, "*.shp")
+        if gt_shp_path is None:
+            sys.exit(f"GT SHP 없음: {gt_shp_dir}/*.shp")
+        print(f"GT SHP 로드 중 … {gt_shp_path}")
+        gt_gdf = gpd.read_file(str(gt_shp_path))
+        if gt_gdf.crs is None:
+            gt_gdf = gt_gdf.set_crs("EPSG:5186")
+        elif gt_gdf.crs.to_epsg() != 5186:
+            gt_gdf = gt_gdf.to_crs("EPSG:5186")
+        gt_gdf.sindex  # 사전 빌드
+        print(f"  건물 폴리곤: {len(gt_gdf)}개\n")
+
+    # ── 패치별 속성 계산 ─────────────────────────────────────────────────────
+    print("속성 계산 중 …")
+    updates: dict[str, dict] = {}
+
+    for entry in manifest:
+        image_path = entry["image_path"]
+        patch_id   = str(entry.get("patch_id") or Path(image_path).stem)
+        attrs: dict = {}
+
+        patch_geom = _patch_geom_from_entry(entry)
+
+        # geometric
+        if schema["geometric"]:
+            if patch_geom is not None:
+                buildings = _intersect_buildings(gt_gdf, patch_geom)
+                geo = compute_geometric(patch_geom, buildings, float(patch_geom.area))
+                for key in schema["geometric"]:
+                    attrs[key] = geo.get(key)
+            else:
+                print(f"  [warn] patch_id={patch_id} geo.bbox 없음 → geometric all None", file=sys.stderr)
+                for key in schema["geometric"]:
+                    attrs[key] = None
+
+        # radiometric
+        if schema["radiometric"]:
+            raster = _read_raster_window(tif_path, patch_geom) if patch_geom is not None else None
+            if raster is not None:
+                radio = {
+                    **compute_radiometric(raster),
+                    **compute_shadow_ratio(raster),
+                    **compute_vegetation_ratio(raster),
+                }
+                for key in schema["radiometric"]:
+                    attrs[key] = radio.get(key)
+            else:
+                for key in schema["radiometric"]:
+                    attrs[key] = None
+
+        updates[image_path] = attrs
+
+    # ── 속성별 요약 출력 ──────────────────────────────────────────────────────
     print()
-    for field, meta in schema.items():
-        all_vals = [v[field] for v in updates.values()]
-        null_count = sum(1 for v in all_vals if v is None)
-        vals = [v for v in all_vals if v is not None]
-        null_suffix = f"  (null: {null_count}/{len(all_vals)})" if null_count else ""
-        if not vals:
-            print(f"  {field:<12}: all null{null_suffix}")
+    all_keys = list(schema["geometric"]) + list(schema["radiometric"])
+    for key in all_keys:
+        meta     = config.PANEL_COLUMN_META.get(key, {})
+        vals     = [v.get(key) for v in updates.values()]
+        nulls    = sum(1 for v in vals if v is None)
+        non_null = [v for v in vals if v is not None]
+        sfx      = f"  (null: {nulls}/{len(vals)})" if nulls else ""
+
+        if not non_null:
+            print(f"  {key:<28}: all null{sfx}")
             continue
-        if meta["type"] == "categorical":
+
+        if meta.get("type") == "categorical":
             from collections import Counter
-            dist = Counter(vals)
-            print(f"  {field:<12}: {dict(dist)}{null_suffix}")
+            print(f"  {key:<28}: {dict(Counter(str(v) for v in non_null))}{sfx}")
         else:
-            print(
-                f"  {field:<12}: min={min(vals)}, max={max(vals)}, "
-                f"mean={sum(vals)/len(vals):.3f}{null_suffix}"
-            )
+            try:
+                fv = [float(v) for v in non_null]
+                print(
+                    f"  {key:<28}: min={min(fv):.4f}, "
+                    f"max={max(fv):.4f}, "
+                    f"mean={sum(fv)/len(fv):.4f}"
+                    f"{sfx}"
+                )
+            except (TypeError, ValueError):
+                print(f"  {key:<28}: {non_null[:3]}...{sfx}")
 
-    print(
-        "\n  NOTE: biou / recall / precision / f1 / f2 are prediction-dependent metrics\n"
-        "        and are NOT computed here — see precompute_panel_stats.py."
-    )
-
-    # 전체 덮어쓰기: 스키마에 없는 속성(삭제된 속성)이 파일에 남지 않도록 한다.
+    # ── 저장 ─────────────────────────────────────────────────────────────────
     config.ATTRS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(config.ATTRS_PATH, "w", encoding="utf-8") as fh:
         json.dump(updates, fh, indent=2, ensure_ascii=False)

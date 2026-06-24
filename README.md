@@ -25,8 +25,8 @@ conda env create -f environment.yml
 conda activate fiftyone-seg-eval
 
 # 1. 최초: 패치 PNG·마스크 생성 + 속성 계산 + 통계 집계
-make pipeline                                  # 기본 데이터셋 (building-jungrang-2022)
-make pipeline DS=building-seocho-2022          # 추가 데이터셋
+make pipeline                                  # 기본 데이터셋 (jungrang_2022)
+make pipeline DS=seocho_2022                   # 추가 데이터셋
 
 # 2. 이후: App 실행 (config.py 변경 자동 감지)
 make run
@@ -35,8 +35,8 @@ make run
 
 다른 데이터셋으로 전환:
 ```bash
-make run DS=building-seocho-2022
-make run DS=building-gangseo-2022
+make run DS=seocho_2022
+make run DS=gangseo_2022
 ```
 
 ---

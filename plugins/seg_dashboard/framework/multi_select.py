@@ -65,15 +65,17 @@ class MultiSelectMixin:
         def _cb(ctx) -> None:
             stats = load_stats(ctx.panel.get_state("dataset"))
             all_items = list(items_fn(stats)) if stats else []
-            raw = ctx.params.get("value") or []
-            # list 또는 단일 값 정규화
+            raw = ctx.params.get("value")
+            # FiftyOne AutocompleteView 는 칩 제거 시 빈 이벤트를 중간에 보낼 수 있다.
+            # null/빈 이벤트는 무시해 "제거했다가 전체로 되돌아오는" 현상을 방지한다.
+            # 시각적 폴백(전체 선택 표시)은 render 단의 `or list(items)` 가 담당한다.
+            if not raw:
+                return
             if isinstance(raw, str):
                 raw = [raw]
             sel = [x for x in raw if x in all_items]
-            # 빈 선택 → 전체 선택으로 복구 (차트가 데이터 없는 상태 방지)
-            if not sel:
-                sel = all_items
-            ctx.panel.set_state(key, sel)
+            if sel:
+                ctx.panel.set_state(key, sel)
         return _BoundCb(self, f"on_change_{key}", _cb)
 
     def __getattr__(self, name: str):

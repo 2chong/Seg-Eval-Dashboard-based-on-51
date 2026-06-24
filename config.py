@@ -91,63 +91,63 @@ def dataset_attribute_keys(name: str | None = None) -> list[str]:
 # year         : 연도 (정수)
 # attributes   : ATTRIBUTE_GROUPS 의 그룹명
 DATASETS: dict[str, dict] = {
-    "building-seocho-2022": {
+    "seocho_2022": {
         "label":      "서초구 2022",
         "data_dir":   ROOT_DIR / "data_building" / "seocho_2022",
         "region":     "seocho",
         "year":       2022,
         "attributes": "all",
     },
-    "building-gangseo-2022": {
+    "gangseo_2022": {
         "label":      "강서구 2022",
         "data_dir":   ROOT_DIR / "data_building" / "gangseo_2022",
         "region":     "gangseo",
         "year":       2022,
         "attributes": "all",
     },
-    "building-junggu-2022": {
+    "junggu_2022": {
         "label":      "중구 2022",
         "data_dir":   ROOT_DIR / "data_building" / "junggu_2022",
         "region":     "junggu",
         "year":       2022,
         "attributes": "all",
     },
-    "building-jungrang-2022": {
+    "jungrang_2022": {
         "label":      "중랑구 2022",
         "data_dir":   ROOT_DIR / "data_building" / "jungrang_2022",
         "region":     "jungrang",
         "year":       2022,
         "attributes": "all",
     },
-    "building-mapo-2022": {
+    "mapo_2022": {
         "label":      "마포구 2022",
         "data_dir":   ROOT_DIR / "data_building" / "mapo_2022",
         "region":     "mapo",
         "year":       2022,
         "attributes": "all",
     },
-    "building-songpa-2022": {
+    "songpa_2022": {
         "label":      "송파구 2022",
         "data_dir":   ROOT_DIR / "data_building" / "songpa_2022",
         "region":     "songpa",
         "year":       2022,
         "attributes": "all",
     },
-    "building-suseo-2022": {
+    "suseo_2022": {
         "label":      "수서 2022",
         "data_dir":   ROOT_DIR / "data_building" / "suseo_2022",
         "region":     "suseo",
         "year":       2022,
         "attributes": "all",
     },
-    "building-yangcheon-2022": {
+    "yangcheon_2022": {
         "label":      "양천구 2022",
         "data_dir":   ROOT_DIR / "data_building" / "yangcheon_2022",
         "region":     "yangcheon",
         "year":       2022,
         "attributes": "all",
     },
-    "building-youngdeungpo-2022": {
+    "youngdeungpo_2022": {
         "label":      "영등포구 2022",
         "data_dir":   ROOT_DIR / "data_building" / "youngdeungpo_2022",
         "region":     "youngdeungpo",
@@ -155,7 +155,7 @@ DATASETS: dict[str, dict] = {
         "attributes": "all",
     },
 }
-DEFAULT_DATASET = "building-jungrang-2022"
+DEFAULT_DATASET = "jungrang_2022"
 
 # ── Experiment 레지스트리 ─────────────────────────────────────────────────────
 # 새 모델(experiment)을 추가할 때 여기에만 등록하면 된다.
@@ -163,6 +163,7 @@ DEFAULT_DATASET = "building-jungrang-2022"
 # label : App/패널 표시 이름
 _EXPERIMENT_LABELS: dict[str, str] = {
     "segformer_init": "SegFormer 초기 모델",
+    "mobile_unet":    "WHU Building UNet++ (EfficientNet-B4)",  # oneoff/infer_mobile_unet.py 로 생성
 }
 DEFAULT_EXPERIMENT = "segformer_init"
 
@@ -190,7 +191,7 @@ def activate_dataset(name: str | None = None) -> None:
     ATTRS_PATH        = DATA_DIR / "sample_attrs.json"
     PANEL_STATS_PATH  = DATA_DIR / "panel_stats.json"
     DATASET_NAME      = name
-    EVAL_DATASET_NAME = f"seg-eval-{name}"
+    EVAL_DATASET_NAME = name
     REGION            = cfg["region"]
     YEAR              = cfg["year"]
     # patches.sqlite 경로 — generate_attrs.py 가 속성을 읽는 원본 DB

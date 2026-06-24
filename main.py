@@ -10,7 +10,7 @@ main.py
   4. python main.py                          ← 매 실행: 평가 + App
 
 데이터셋 선택 (기본: config.DEFAULT_DATASET):
-  python main.py --dataset building-seocho-2022
+  python main.py --dataset seocho_2022
 
 pipeline 단계:
   dataset_builder  →  evaluation  →  app
@@ -59,19 +59,18 @@ fo.config.plugins_dir = str(config.PLUGINS_DIR)
 def _cleanup_stale_fo_datasets() -> None:
     """불필요한 FiftyOne 데이터셋을 App 시작 시 정리한다.
 
-    - 구버전 seg-eval-* 데이터셋 (config.DATASETS 에 없는 것)
-    - 데이터셋 키와 이름이 같은 FiftyOne 잔여 데이터셋
+    - 구버전 seg-eval-* 데이터셋 (이름 변경 전 레거시)
+    - config.DATASETS 에 없는 지역_연도 형식 데이터셋
     """
-    valid_eval    = {f"seg-eval-{k}" for k in config.DATASETS}
-    dataset_names = set(config.DATASETS.keys())   # "building-jungrang-2022" 등
+    valid_names = set(config.DATASETS.keys())
 
-    for name in fo.list_datasets():
-        if name.startswith("seg-eval-") and name not in valid_eval:
-            fo.delete_dataset(name)
-            print(f"  [cleanup] Deleted stale seg-eval dataset: {name}")
-        elif name in dataset_names:
-            fo.delete_dataset(name)
-            print(f"  [cleanup] Removed stale dataset from App: {name}")
+    for fo_name in fo.list_datasets():
+        if fo_name.startswith("seg-eval-"):
+            fo.delete_dataset(fo_name)
+            print(f"  [cleanup] Deleted legacy seg-eval dataset: {fo_name}")
+        elif "_" in fo_name and fo_name not in valid_names:
+            fo.delete_dataset(fo_name)
+            print(f"  [cleanup] Deleted stale dataset: {fo_name}")
 
 
 def _run_tool(script: str, dataset: str) -> None:
@@ -86,34 +85,34 @@ def _run_tool(script: str, dataset: str) -> None:
 
 
 def _auto_sync_if_stale() -> None:
-    """config.py 또는 sample_attrs.json 이 stale 이면 자동으로 sync 를 실행한다.
+    """sample_attrs.json / panel_stats.json 이 없거나 stale 이면 자동으로 sync 를 실행한다.
 
     트리거 규칙:
-      config.py > sample_attrs.json  → generate_attrs + precompute (속성 정의 변경)
-      sample_attrs.json > panel_stats.json → precompute only (attrs 만 갱신)
-      manifest.json > panel_stats.json  → precompute only (추론 결과 변경, 새 모델 추가 등)
+      sample_attrs.json 없음           → generate_attrs + precompute (최초 1회)
+      sample_attrs.json > panel_stats  → precompute only (attrs 갱신)
+      manifest.json > panel_stats      → precompute only (새 예측 결과 추가)
 
-    manifest.json 이 없는 데이터셋(inference 미실행)은 건너뛴다.
+    attrs 재생성은 파일이 아예 없을 때만 자동 실행한다.
+    속성 정의·compute 코드 변경 시에는 make regen-attr-all 을 명시적으로 실행한다.
+    manifest.json 이 없는 데이터셋은 건너뛴다.
     """
-    config_mtime = (config.ROOT_DIR / "config.py").stat().st_mtime
-
     for ds_key, ds_cfg in config.DATASETS.items():
         manifest = ds_cfg["data_dir"] / "manifest.json"
         attrs    = ds_cfg["data_dir"] / "sample_attrs.json"
         stats    = ds_cfg["data_dir"] / "panel_stats.json"
 
         if not manifest.exists():
-            continue  # inference 미실행 → 건너뜀
+            continue
 
         attrs_mtime    = attrs.stat().st_mtime if attrs.exists() else 0
         stats_mtime    = stats.stat().st_mtime if stats.exists() else 0
         manifest_mtime = manifest.stat().st_mtime
 
-        need_attrs = config_mtime > attrs_mtime
+        need_attrs = not attrs.exists()
         need_stats = need_attrs or (attrs_mtime > stats_mtime) or (manifest_mtime > stats_mtime)
 
         if need_attrs:
-            print(f"\n  [auto-sync] {ds_key}: config.py changed — regenerating attrs ...")
+            print(f"\n  [auto-sync] {ds_key}: sample_attrs.json 없음 — generating attrs ...")
             _run_tool("tools/generate_attrs.py", ds_key)
 
         if need_stats:

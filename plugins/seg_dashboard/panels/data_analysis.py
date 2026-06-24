@@ -30,11 +30,12 @@ from ..sections import (
     dataset_items,
     dataset_labels,
     SectionLabel,
+    SampleCountSection,
 )
 
 
 class DataAnalysisPanel(MultiSelectMixin, BasePanel):
-    PANEL_NAME  = "seg_data_analysis"
+    PANEL_NAME  = "seg_1_data_analysis"
     PANEL_LABEL = "(1) Data Analysis"
 
     MULTI_SELECTS = [
@@ -48,6 +49,7 @@ class DataAnalysisPanel(MultiSelectMixin, BasePanel):
 
     SECTIONS = [
         DatasetSelectorSection(),
+        SampleCountSection(),
         SectionLabel("[Overview] Attribute Summary  |  all attributes, experiment-independent"),
         AttributeSummarySection(kind_filter="attribute"),
         SectionLabel("[Interactive] Attribute Distribution  |  Field / Bins selection"),

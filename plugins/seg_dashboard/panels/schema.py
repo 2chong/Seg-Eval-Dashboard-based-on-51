@@ -21,7 +21,7 @@ from ..sections import (
 
 
 class SchemaPanel(BasePanel):
-    PANEL_NAME  = "seg_schema"
+    PANEL_NAME  = "seg_5_schema"
     PANEL_LABEL = "(5) Schema & Table"
 
     SECTIONS = [

@@ -44,15 +44,19 @@ def _is_cached(name: str) -> bool:
     """기존 FiftyOne 데이터셋을 재사용할 수 있는지 확인한다.
 
     조건: 데이터셋이 존재하고, 샘플이 있으며,
-    config.EXPERIMENTS 의 모든 experiment 평가 결과가 저장돼 있어야 한다.
+    pred 필드가 실제로 존재하는 experiment 의 평가 결과가 모두 저장돼 있어야 한다.
+    pred_shp 미존재 experiment 는 검사에서 제외한다.
     """
     if not fo.dataset_exists(name):
         return False
     ds = fo.load_dataset(name)
     if len(ds) == 0:
         return False
-    expected = set(config.EXPERIMENTS.keys())
-    return expected.issubset(set(ds.list_evaluations()))
+    schema = ds.get_field_schema()
+    available = {exp for exp in config.EXPERIMENTS if f"predictions_{exp}" in schema}
+    if not available:
+        return False
+    return available.issubset(set(ds.list_evaluations()))
 
 
 def build(

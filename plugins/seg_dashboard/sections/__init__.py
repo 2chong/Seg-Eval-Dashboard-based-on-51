@@ -30,6 +30,7 @@ from .metric_breakdown import MetricBreakdownSection  # 하위 호환 — 내부
 from .records_table import RecordsTableSection
 from .schema_table import SchemaTableSection
 from .metric_dist import MetricDistributionSection
+from .metric_summary import MetricSummarySection
 from .attr_metric_compare import AttrMetricCompareSection
 from .dataset_compare import DatasetCompareSection
 from .multi_select import (
@@ -39,7 +40,7 @@ from .multi_select import (
     dataset_items,
     dataset_labels,
 )
-from .section_label import SectionLabel
+from .section_label import SectionLabel, SampleCountSection
 
 __all__ = [
     "PanelSection",
@@ -55,6 +56,7 @@ __all__ = [
     "RecordsTableSection",
     "SchemaTableSection",
     "MetricDistributionSection",
+    "MetricSummarySection",
     "AttrMetricCompareSection",
     "DatasetCompareSection",
     "MultiSelectSection",
@@ -63,4 +65,5 @@ __all__ = [
     "dataset_items",
     "dataset_labels",
     "SectionLabel",
+    "SampleCountSection",
 ]

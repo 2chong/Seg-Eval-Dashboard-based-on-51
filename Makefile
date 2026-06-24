@@ -1,8 +1,10 @@
 PYTHON   = python
-DS      ?= coco-val-voc-50
+DS      ?= jungrang_2022
 
 # 모든 데이터셋 목록 — 새 데이터셋 추가 시 여기와 config.DATASETS 만 편집.
-DATASETS = coco-val-voc-50 coco-val-voc-50b coco-val-voc-50c
+DATASETS = seocho_2022 gangseo_2022 junggu_2022 \
+           jungrang_2022 mapo_2022 songpa_2022 \
+           suseo_2022 yangcheon_2022 youngdeungpo_2022
 
 # =============================================================================
 # 수동 sync (통상 make run 의 auto-sync 로 불필요 — 강제 재생성이 필요할 때만)
@@ -37,16 +39,29 @@ run:
 # 이후에는 make run 만으로 충분합니다.
 # =============================================================================
 .PHONY: pipeline
-pipeline: inference attrs stats
+pipeline: manifest attrs stats
 
-# 1단계: 추론 + manifest 생성 (최초 1회)
-.PHONY: inference
-inference:
-	$(PYTHON) tools/run_inference.py --dataset $(DS)
+# 1단계: 패치 PNG + 마스크 + manifest 생성 (최초 1회)
+.PHONY: manifest
+manifest:
+	$(PYTHON) oneoff/build_manifest.py --dataset $(DS)
 
-.PHONY: inference-all
-inference-all:
-	$(foreach ds,$(DATASETS),$(PYTHON) tools/run_inference.py --dataset $(ds) ; ) true
+.PHONY: manifest-all
+manifest-all:
+	$(PYTHON) oneoff/build_manifest.py --dataset seocho_2022
+	$(PYTHON) oneoff/build_manifest.py --dataset gangseo_2022
+	$(PYTHON) oneoff/build_manifest.py --dataset junggu_2022
+	$(PYTHON) oneoff/build_manifest.py --dataset jungrang_2022
+	$(PYTHON) oneoff/build_manifest.py --dataset mapo_2022
+	$(PYTHON) oneoff/build_manifest.py --dataset songpa_2022
+	$(PYTHON) oneoff/build_manifest.py --dataset suseo_2022
+	$(PYTHON) oneoff/build_manifest.py --dataset yangcheon_2022
+	$(PYTHON) oneoff/build_manifest.py --dataset youngdeungpo_2022
+
+# 기존 PNG 캐시(이미지·마스크)를 버리고 강제 재생성
+.PHONY: manifest-force
+manifest-force:
+	$(PYTHON) oneoff/build_manifest.py --dataset $(DS) --force
 
 # 2단계: 샘플 속성 생성 (manifest 변경 시 재실행)
 .PHONY: attrs
@@ -55,7 +70,15 @@ attrs:
 
 .PHONY: attrs-all
 attrs-all:
-	$(foreach ds,$(DATASETS),$(PYTHON) tools/generate_attrs.py --dataset $(ds) ; ) true
+	$(PYTHON) tools/generate_attrs.py --dataset seocho_2022
+	$(PYTHON) tools/generate_attrs.py --dataset gangseo_2022
+	$(PYTHON) tools/generate_attrs.py --dataset junggu_2022
+	$(PYTHON) tools/generate_attrs.py --dataset jungrang_2022
+	$(PYTHON) tools/generate_attrs.py --dataset mapo_2022
+	$(PYTHON) tools/generate_attrs.py --dataset songpa_2022
+	$(PYTHON) tools/generate_attrs.py --dataset suseo_2022
+	$(PYTHON) tools/generate_attrs.py --dataset yangcheon_2022
+	$(PYTHON) tools/generate_attrs.py --dataset youngdeungpo_2022
 
 # 3단계: 패널 통계 집계 (attrs 변경 시 재실행)
 .PHONY: stats
@@ -64,7 +87,15 @@ stats:
 
 .PHONY: stats-all
 stats-all:
-	$(foreach ds,$(DATASETS),$(PYTHON) tools/precompute_panel_stats.py --dataset $(ds) ; ) true
+	-$(PYTHON) tools/precompute_panel_stats.py --dataset seocho_2022
+	-$(PYTHON) tools/precompute_panel_stats.py --dataset gangseo_2022
+	-$(PYTHON) tools/precompute_panel_stats.py --dataset junggu_2022
+	-$(PYTHON) tools/precompute_panel_stats.py --dataset jungrang_2022
+	-$(PYTHON) tools/precompute_panel_stats.py --dataset mapo_2022
+	-$(PYTHON) tools/precompute_panel_stats.py --dataset songpa_2022
+	-$(PYTHON) tools/precompute_panel_stats.py --dataset suseo_2022
+	-$(PYTHON) tools/precompute_panel_stats.py --dataset yangcheon_2022
+	-$(PYTHON) tools/precompute_panel_stats.py --dataset youngdeungpo_2022
 
 # =============================================================================
 # config.py 수정 후 업데이트 타겟
@@ -96,11 +127,19 @@ regen-attr-all:
 
 .PHONY: regen-stats
 regen-stats:
-	$(PYTHON) tools/precompute_panel_stats.py --dataset $(DS)
+	$(PYTHON) tools/precompute_panel_stats.py --dataset $(DS) --force
 
 .PHONY: regen-stats-all
 regen-stats-all:
-	$(foreach ds,$(DATASETS),$(PYTHON) tools/precompute_panel_stats.py --dataset $(ds) ; ) true
+	$(PYTHON) tools/precompute_panel_stats.py --dataset seocho_2022 --force
+	$(PYTHON) tools/precompute_panel_stats.py --dataset gangseo_2022 --force
+	$(PYTHON) tools/precompute_panel_stats.py --dataset junggu_2022 --force
+	$(PYTHON) tools/precompute_panel_stats.py --dataset jungrang_2022 --force
+	$(PYTHON) tools/precompute_panel_stats.py --dataset mapo_2022 --force
+	$(PYTHON) tools/precompute_panel_stats.py --dataset songpa_2022 --force
+	$(PYTHON) tools/precompute_panel_stats.py --dataset suseo_2022 --force
+	$(PYTHON) tools/precompute_panel_stats.py --dataset yangcheon_2022 --force
+	$(PYTHON) tools/precompute_panel_stats.py --dataset youngdeungpo_2022 --force
 
 # =============================================================================
 # FiftyOne 캐시 강제 재빌드 (새 experiment 추가 또는 완전 재평가 필요 시)
@@ -109,7 +148,7 @@ regen-stats-all:
 # =============================================================================
 .PHONY: rebuild
 rebuild:
-	$(PYTHON) -c "import os; os.environ['FIFTYONE_PLUGINS_DIR']='plugins'; import fiftyone as fo; n='seg-eval-$(DS)'; fo.delete_dataset(n) if fo.dataset_exists(n) else None; print(f'Cleared FiftyOne cache: {n}')"
+	$(PYTHON) -c "import os; os.environ['FIFTYONE_PLUGINS_DIR']='plugins'; import fiftyone as fo; n='$(DS)'; fo.delete_dataset(n) if fo.dataset_exists(n) else None; print(f'Cleared FiftyOne cache: {n}')"
 	$(PYTHON) main.py --dataset $(DS)
 
 # =============================================================================

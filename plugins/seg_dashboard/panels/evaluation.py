@@ -19,6 +19,7 @@ from ..framework import BasePanel
 from ..sections import (
     DatasetSelectorSection,
     ExperimentSelectorSection,
+    MetricSummarySection,
     MetricDistributionSection,
     ConfusionMatrixSection,
     SectionLabel,
@@ -26,7 +27,7 @@ from ..sections import (
 
 
 class EvaluationPanel(BasePanel):
-    PANEL_NAME  = "seg_evaluation"
+    PANEL_NAME  = "seg_2_evaluation"
     PANEL_LABEL = "(2) Evaluation"
 
     STATE_DEFAULTS = {
@@ -38,6 +39,9 @@ class EvaluationPanel(BasePanel):
     SECTIONS = [
         DatasetSelectorSection(),
         ExperimentSelectorSection(),
+        SectionLabel("[Overview] Overall Metrics  |  per-sample mean / min / max"),
+        MetricSummarySection(),
+        SectionLabel("[Interactive] Metric Distribution  |  Metric / Bins selection"),
         MetricDistributionSection(),
         SectionLabel("[Overview] Confusion Matrix  |  Experiment selector above"),
         ConfusionMatrixSection(),

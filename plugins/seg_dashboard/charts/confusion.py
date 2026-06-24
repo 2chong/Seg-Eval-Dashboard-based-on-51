@@ -28,27 +28,34 @@ class ConfusionMatrixChart(BaseChart):
         matrix = np.array(cm_data["matrix"], dtype=float)
         log_matrix = np.log1p(matrix).tolist()
 
+        x_labels = [f"Pred: {c}" for c in classes]
+        y_labels = [f"GT: {c}"   for c in classes]
+        cell_text = [[f"{int(v):,}" for v in row] for row in matrix.tolist()]
+
         trace = {
             "type": "heatmap",
             "z": log_matrix,
-            "x": classes,
-            "y": classes,
+            "x": x_labels,
+            "y": y_labels,
             "colorscale": "Blues",
             "showscale": True,
+            "text": cell_text,
+            "texttemplate": "%{text}",
+            "textfont": {"size": 12, "color": "black"},
             "hovertemplate": (
-                "GT: <b>%{y}</b><br>"
-                "Pred: <b>%{x}</b><br>"
+                "<b>%{y}</b><br>"
+                "<b>%{x}</b><br>"
                 "pixels: %{customdata:,}<extra></extra>"
             ),
             "customdata": matrix.tolist(),
         }
 
         layout = {
-            "title": {"text": "Confusion Matrix  (log pixel count)"},
-            "xaxis": {"title": "Predicted", "tickangle": 45},
+            "title": {"text": "Confusion Matrix  (pixel count)"},
+            "xaxis": {"title": "Predicted", "tickangle": 0},
             "yaxis": {"title": "Ground Truth", "autorange": "reversed"},
             "height": 420,
-            "margin": {"t": 50, "b": 120},
+            "margin": {"t": 50, "b": 80},
         }
 
         return {"data": [trace], "layout": layout}

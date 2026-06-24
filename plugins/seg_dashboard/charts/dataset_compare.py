@@ -63,7 +63,9 @@ class DatasetCompareCategoricalChart(BaseChart):
 
             total = sum(counts.values()) or 1
             y     = [counts.get(x, 0) / total for x in x_labels]
+            ds_label = dataset_labels.get(ds_key, ds_key)
             hover = [
+                f"<b>{ds_label}</b><br>"
                 f"{field}: {x}<br>"
                 f"Proportion: {counts.get(x, 0) / total:.1%}<br>"
                 f"Count: {counts.get(x, 0)}"
@@ -149,7 +151,9 @@ class DatasetCompareNumericalChart(BaseChart):
             counts, _ = np.histogram(np.array(values), bins=bin_edges)
             total      = len(values) or 1
             y          = (counts / total).tolist()
+            ds_label   = dataset_labels.get(ds_key, ds_key)
             hover      = [
+                f"<b>{ds_label}</b><br>"
                 f"{field}: {x_labels[j]}<br>"
                 f"Proportion: {y[j]:.1%}<br>"
                 f"Count: {counts[j]}"

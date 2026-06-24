@@ -38,3 +38,15 @@ class SectionLabel(PanelSection):
             c if c.isalnum() else "_" for c in self._text
         )[:36]
         panel.md(f"**{self._text}**", name=safe_id)
+
+
+class SampleCountSection(PanelSection):
+    """현재 선택된 데이터셋의 총 패치 수를 표시한다."""
+
+    def render(self, panel, stats, state, callbacks=None) -> None:
+        if not stats:
+            return
+        n = stats.get("meta", {}).get("num_samples")
+        if n is None:
+            return
+        panel.md(f"**Total: {n:,} patches**", name="_sample_count")

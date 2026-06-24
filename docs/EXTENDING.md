@@ -94,7 +94,7 @@ DATASETS = {
 
 ```python
 # config.DATASETS 에 추가
-"building-myregion-2023": {
+"myregion_2023": {
     "label":    "My Region 2023",
     "data_dir": ROOT_DIR / "data_myregion",
     "region":   "myregion",
@@ -105,10 +105,10 @@ DATASETS = {
 
 ```makefile
 # Makefile 상단 DATASETS 변수에 추가
-DATASETS = building-jungrang-2022 ... building-myregion-2023
+DATASETS = jungrang_2022 ... myregion_2023
 ```
 
-이후 `make pipeline DS=building-myregion-2023` 으로 전체 파이프라인 실행.
+이후 `make pipeline DS=myregion_2023` 으로 전체 파이프라인 실행.
 
 **`manifest.json` 스키마** (`tools/build_manifest.py` 가 생성):
 ```json
@@ -127,7 +127,7 @@ source_data/data/gt_shp/<region>/<year>/*.shp
 source_data/data/pred_shp/<region>/<year>/<exp_name>/*.shp   (실험별)
 ```
 
-소스 데이터가 준비되면 `make pipeline DS=building-myregion-2023` 한 번으로 완료.
+소스 데이터가 준비되면 `make pipeline DS=myregion_2023` 한 번으로 완료.
 
 ---
 

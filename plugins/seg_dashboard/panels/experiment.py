@@ -33,7 +33,7 @@ from ..stats import load_stats, list_attributes
 
 
 class ExperimentPanel(MultiSelectMixin, BasePanel):
-    PANEL_NAME  = "seg_experiment"
+    PANEL_NAME  = "seg_4_experiment"
     PANEL_LABEL = "(4) Experiment"
 
     MULTI_SELECTS = [
