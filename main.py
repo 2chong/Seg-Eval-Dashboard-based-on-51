@@ -43,8 +43,7 @@ config.activate_dataset(_args.dataset)
 # plugins_dir을 config 초기화 이후에도 명시적으로 재확인
 os.environ["FIFTYONE_PLUGINS_DIR"] = str(config.PLUGINS_DIR)
 
-import seg_utils
-from pipeline import app, dataset_builder, evaluation
+from pipeline import app, dataset_builder, evaluation, seg_io
 from pipeline.app import configure_sidebar
 
 try:
@@ -144,8 +143,8 @@ def _build_all_datasets() -> fo.Dataset:
         print(f"\n── Building dataset: {ds_key} ───────────────────────────────")
         config.activate_dataset(ds_key)
 
-        manifest = seg_utils.load_manifest(config.MANIFEST_PATH)
-        attrs    = seg_utils.load_attrs(attrs_path)
+        manifest = seg_io.load_manifest(config.MANIFEST_PATH)
+        attrs    = seg_io.load_attrs(attrs_path)
 
         ds          = dataset_builder.build(manifest, attrs)
         all_results = evaluation.run(ds)

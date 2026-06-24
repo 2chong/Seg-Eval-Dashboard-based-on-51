@@ -33,7 +33,7 @@ _p = argparse.ArgumentParser(add_help=False)
 _p.add_argument("--dataset", default=None)
 config.activate_dataset(_p.parse_known_args()[0].dataset)
 
-import seg_utils
+from pipeline import seg_io
 
 try:
     import numpy as np
@@ -155,7 +155,7 @@ def main() -> None:
     print(f"geometric  ({len(schema['geometric'])}): {list(schema['geometric'].keys())}")
     print(f"radiometric({len(schema['radiometric'])}): {list(schema['radiometric'].keys())}")
 
-    manifest = seg_utils.load_manifest(config.MANIFEST_PATH)
+    manifest = seg_io.load_manifest(config.MANIFEST_PATH)
     print(f"Manifest: {len(manifest)} entries\n")
 
     # ── 데이터 소스 준비 ─────────────────────────────────────────────────────

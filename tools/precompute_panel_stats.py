@@ -76,8 +76,7 @@ _parsed = _p.parse_known_args()[0]
 config.activate_dataset(_parsed.dataset)
 FORCE: bool = _parsed.force
 
-import seg_utils
-from pipeline import dataset_builder, evaluation
+from pipeline import dataset_builder, evaluation, seg_io
 
 try:
     import fiftyone as fo
@@ -135,7 +134,7 @@ def _is_fresh() -> tuple[bool, str]:
         return False, f"메트릭 변경 ({', '.join(parts)})"
 
     # 미평가 실험 확인 (manifest 에 predictions 로 등록된 것 기준)
-    manifest_data = seg_utils.load_manifest(config.MANIFEST_PATH)
+    manifest_data = seg_io.load_manifest(config.MANIFEST_PATH)
     available_exps: set[str] = set()
     for entry in manifest_data:
         available_exps.update(entry.get("predictions", {}).keys())
@@ -319,8 +318,8 @@ def _build_records(
                     pred_path = getattr(pred_seg,  "mask_path", None)
                     if gt_path and pred_path:
                         _mask_cache = _binary_metrics_from_masks(
-                            seg_utils.load_mask(gt_path),
-                            seg_utils.load_mask(pred_path),
+                            seg_io.load_mask(gt_path),
+                            seg_io.load_mask(pred_path),
                         )
                     else:
                         _mask_cache = {}
@@ -518,10 +517,10 @@ def main() -> None:
             return
         print(f"  → [{config.ACTIVE_DATASET}] stale: {reason}")
 
-    manifest = seg_utils.load_manifest(config.MANIFEST_PATH)
+    manifest = seg_io.load_manifest(config.MANIFEST_PATH)
     print(f"Manifest loaded: {len(manifest)} entries")
 
-    attrs = seg_utils.load_attrs(config.ATTRS_PATH)
+    attrs = seg_io.load_attrs(config.ATTRS_PATH)
 
     # ── 메트릭 스펙 (config 기반, 자동) ─────────────────────────────────────
     metric_specs = _metric_specs()
