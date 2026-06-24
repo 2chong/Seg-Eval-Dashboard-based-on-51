@@ -2,7 +2,8 @@
 source_data/
 
 # ── pipeline 생성물 ────────────────────────────────────────────────────────────
-data_building/
+data_building/*
+!data_building/example/
 
 # ── FiftyOne 로컬 캐시 ────────────────────────────────────────────────────────
 .fiftyone/

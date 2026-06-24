@@ -1,0 +1,30 @@
+[
+  {
+    "image_path": "data_building/example/images/r0000_c0000.png",
+    "gt_mask_path": "data_building/example/masks/gt/r0000_c0000.png",
+    "predictions": {
+      "segformer_init": "data_building/example/masks/segformer_init/r0000_c0000.png"
+    },
+    "patch_id": "r0000_c0000",
+    "geo": {
+      "crs": "EPSG:5186",
+      "bbox": [206689.4, 554687.9, 206817.4, 554815.9],
+      "centroid_lon": 127.0764684,
+      "centroid_lat": 37.5923077
+    }
+  },
+  {
+    "image_path": "data_building/example/images/r0000_c0001.png",
+    "gt_mask_path": "data_building/example/masks/gt/r0000_c0001.png",
+    "predictions": {
+      "segformer_init": "data_building/example/masks/segformer_init/r0000_c0001.png"
+    },
+    "patch_id": "r0000_c0001",
+    "geo": {
+      "crs": "EPSG:5186",
+      "bbox": [206817.4, 554687.9, 206945.4, 554815.9],
+      "centroid_lon": 127.0776521,
+      "centroid_lat": 37.5923077
+    }
+  }
+]
