@@ -53,7 +53,7 @@ class ExperimentCompareSection(PanelSection):
 
         # ── 메트릭 드롭다운 ───────────────────────────────────────────────────
         available = self._available_metrics(stats, experiments)
-        metric    = state.get("metric", available[0] if available else "recall")
+        metric    = state.get("attr_sec.metric") or (available[0] if available else "recall")
         if metric not in available:
             metric = available[0] if available else "recall"
 

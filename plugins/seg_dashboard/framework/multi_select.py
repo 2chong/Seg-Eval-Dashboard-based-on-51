@@ -47,8 +47,13 @@ class MultiSelectMixin:
         self._reset_multi(ctx)
 
     def on_change_dataset(self, ctx) -> None:
+        old_dataset = ctx.panel.get_state("dataset")
         super().on_change_dataset(ctx)  # type: ignore[misc]
-        self._reset_multi(ctx)
+        new_dataset = ctx.panel.get_state("dataset")
+        # FiftyOne can fire on_change_dataset spuriously on re-renders (default applied).
+        # Only reset multi-select when the dataset actually changed.
+        if new_dataset and new_dataset != old_dataset:
+            self._reset_multi(ctx)
 
     def _reset_multi(self, ctx) -> None:
         """데이터셋 로드/변경 시 모든 멀티셀렉트를 '전체 선택' 으로 초기화한다."""
@@ -64,18 +69,20 @@ class MultiSelectMixin:
         """state_key 에 대응하는 AutocompleteView on_change 콜백을 반환한다."""
         def _cb(ctx) -> None:
             stats = load_stats(ctx.panel.get_state("dataset"))
-            all_items = list(items_fn(stats)) if stats else []
+            # stats 가 None 이어도 items_fn 이 stats 를 무시하는 경우(dataset_items) 를 위해
+            # {} 를 fallback 으로 전달한다.
+            all_items = list(items_fn(stats or {}))
             raw = ctx.params.get("value")
-            # FiftyOne AutocompleteView 는 칩 제거 시 빈 이벤트를 중간에 보낼 수 있다.
-            # null/빈 이벤트는 무시해 "제거했다가 전체로 되돌아오는" 현상을 방지한다.
-            # 시각적 폴백(전체 선택 표시)은 render 단의 `or list(items)` 가 담당한다.
-            if not raw:
+            if raw is None:
                 return
             if isinstance(raw, str):
                 raw = [raw]
             sel = [x for x in raw if x in all_items]
-            if sel:
-                ctx.panel.set_state(key, sel)
+            # 빈 선택(all_items 에 없는 키만 남은 경우)은 전체 선택으로 복구
+            resolved = sel if sel else list(all_items)
+            current = ctx.panel.get_state(key)
+            if resolved != current:
+                ctx.panel.set_state(key, resolved)
         return _BoundCb(self, f"on_change_{key}", _cb)
 
     def __getattr__(self, name: str):
