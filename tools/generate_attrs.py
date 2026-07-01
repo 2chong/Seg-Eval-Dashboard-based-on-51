@@ -6,6 +6,7 @@ tools/generate_attrs.py
 compute.source별 처리:
   "geometric"   → GT SHP + patch geometry → pipeline/attributes/geometric.py
   "radiometric" → TIF windowed read       → pipeline/attributes/radiometric.py
+  "gt_mask"     → GT 마스크 PNG building(1) 픽셀 유무 판정 (파일 직접 읽기)
 
 패치 geometry는 manifest의 geo.bbox에서 복원한다 (build_manifest.py가 저장한 값).
 결과는 sample_attrs.json에 캐싱된다.
@@ -71,10 +72,18 @@ def _build_schema() -> dict[str, dict[str, str]]:
     """활성 데이터셋의 attribute 키를 source별로 분류한다.
 
     Returns:
-        {"geometric": {key: field}, "radiometric": {key: field}}
+        {
+          "geometric":   {key: field},
+          "radiometric": {key: field},
+          "gt_mask":     {key: field},  # GT 마스크 픽셀 기반 속성
+        }
     """
     active_keys = set(config.dataset_attribute_keys(config.ACTIVE_DATASET))
-    schema: dict[str, dict[str, str]] = {"geometric": {}, "radiometric": {}}
+    schema: dict[str, dict[str, str]] = {
+        "geometric":   {},
+        "radiometric": {},
+        "gt_mask":     {},
+    }
     for key, meta in config.PANEL_COLUMN_META.items():
         if meta.get("kind") != "attribute" or key not in active_keys:
             continue
@@ -154,6 +163,7 @@ def main() -> None:
     schema = _build_schema()
     print(f"geometric  ({len(schema['geometric'])}): {list(schema['geometric'].keys())}")
     print(f"radiometric({len(schema['radiometric'])}): {list(schema['radiometric'].keys())}")
+    print(f"gt_mask    ({len(schema['gt_mask'])}): {list(schema['gt_mask'].keys())}")
 
     manifest = seg_io.load_manifest(config.MANIFEST_PATH)
     print(f"Manifest: {len(manifest)} entries\n")
@@ -220,11 +230,28 @@ def main() -> None:
                 for key in schema["radiometric"]:
                     attrs[key] = None
 
+        # gt_mask: GT 마스크 PNG의 building(1) 픽셀 유무로 장면 유형 판정.
+        # patch_geom 불필요 — 마스크 파일 경로만 사용.
+        if schema["gt_mask"]:
+            gt_mask_path = entry.get("gt_mask_path")
+            if gt_mask_path and Path(gt_mask_path).exists():
+                try:
+                    gt_arr = seg_io.load_mask(gt_mask_path)
+                    scene = "only_background" if (gt_arr == 1).sum() == 0 else "has_building"
+                except Exception as exc:
+                    print(f"  [warn] GT 마스크 읽기 실패 ({gt_mask_path}): {exc}", file=sys.stderr)
+                    scene = None
+            else:
+                print(f"  [warn] patch_id={patch_id} gt_mask_path 없음 → gt_mask all None", file=sys.stderr)
+                scene = None
+            for key in schema["gt_mask"]:
+                attrs[key] = scene
+
         updates[image_path] = attrs
 
     # ── 속성별 요약 출력 ──────────────────────────────────────────────────────
     print()
-    all_keys = list(schema["geometric"]) + list(schema["radiometric"])
+    all_keys = list(schema["geometric"]) + list(schema["radiometric"]) + list(schema["gt_mask"])
     for key in all_keys:
         meta     = config.PANEL_COLUMN_META.get(key, {})
         vals     = [v.get(key) for v in updates.values()]

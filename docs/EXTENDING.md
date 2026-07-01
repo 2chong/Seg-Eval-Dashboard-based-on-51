@@ -31,35 +31,85 @@
 
 ## 레시피 1: 새 속성 추가
 
+### 케이스 A — 기존 source 재사용 (geometric / radiometric)
+
 **건드리는 파일: `config.py` 1곳**
 
 ```python
 # config.PANEL_COLUMN_META 에 추가
-"weather": {
+"my_attr": {
     "kind":        "attribute",
-    "type":        "categorical",
-    "description": "촬영 날씨",
-    "values":      ["sunny", "cloudy", "rainy"],
-    "generate":    {"method": "choice"},
+    "type":        "numerical",
+    "description": "설명",
+    "range":       [0.0, None],
+    "compute":     {"source": "geometric", "field": "my_attr"},  # 또는 "radiometric"
 }
 
 # config.ATTRIBUTE_GROUPS 의 원하는 그룹에 키 추가
-"full": ["time", "complexity", "count", "weather"],
+"all": [..., "my_attr"],
 ```
 
 자동으로 따라오는 것:
-- `generate_attrs.py` — weather 컬럼 자동 생성
-- FiftyOne sample 필드 부착 (사이드바에 자동 등장)
+- `generate_attrs.py` — `_build_schema()` 에서 자동 분류 → 해당 source 계산 함수 호출
+- FiftyOne sample 필드 부착 (사이드바 Sample Attributes 에 자동 등장)
 - 패널 드롭다운, 분포 차트, 상관 heatmap
 - `panel_stats.json`의 `columns` 항목
 
 재생성 명령:
 ```bash
-make run   # config.py 변경을 감지해 attrs + stats 자동 재생성
+make regen-attr-all   # 새 속성 값 계산 → sample_attrs.json 갱신
+make run              # stats 자동 재생성 후 App 실행
 ```
 
-**새 generate method 가 필요한 경우 (예: "gaussian")**:
-- `tools/generate_attrs.py`의 `_generate_value()` 에 분기 추가 (1곳만)
+---
+
+### 케이스 B — 신규 source (예: `gt_mask` — GT 마스크 픽셀 직접 읽기)
+
+기존 geometric/radiometric source 로 표현할 수 없는 경우.
+`generate_attrs.py`에 source 핸들러 1개를 추가한다.
+
+**건드리는 파일: `config.py` + `tools/generate_attrs.py`**
+
+```python
+# config.PANEL_COLUMN_META 에 추가
+"scene_type": {
+    "kind":        "attribute",
+    "type":        "categorical",
+    "description": "GT 마스크 건물 픽셀 유무 — only_background / has_building",
+    "values":      ["only_background", "has_building"],
+    "compute":     {"source": "gt_mask", "field": "scene_type"},
+}
+
+# config.ATTRIBUTE_GROUPS 에 키 추가
+"all": [..., "scene_type"],
+```
+
+`generate_attrs.py`에 추가:
+```python
+# _build_schema() 반환 dict에 새 source 키 추가
+schema: dict[str, dict[str, str]] = {
+    "geometric":   {},
+    "radiometric": {},
+    "gt_mask":     {},    # ← 추가
+}
+
+# main() 패치 루프에 계산 블록 추가
+if schema["gt_mask"]:
+    gt_mask_path = entry.get("gt_mask_path")
+    if gt_mask_path and Path(gt_mask_path).exists():
+        gt_arr = seg_io.load_mask(gt_mask_path)
+        scene = "only_background" if (gt_arr == 1).sum() == 0 else "has_building"
+    else:
+        scene = None
+    for key in schema["gt_mask"]:
+        attrs[key] = scene
+```
+
+재생성 명령:
+```bash
+make regen-attr-all   # 새 source 처리 포함해 재계산 → sample_attrs.json 갱신
+make run              # stats 자동 재생성 후 App 실행
+```
 
 ---
 

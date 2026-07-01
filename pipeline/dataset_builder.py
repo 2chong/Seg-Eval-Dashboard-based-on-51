@@ -121,6 +121,15 @@ def build(
                         sample[key] = value
                     # col_kind == "metric" 이면 조용히 무시
 
+                # scene_type 이 "only_background" 면 FiftyOne sample 태그도 부착.
+                # 사이드바 "Tags" 그룹에서 체크박스 한 번으로 배경만 패치를 필터링할 수 있다.
+                # 속성 필드(scene_type)와 독립적으로 양쪽 다 부착한다.
+                scene = sample_attrs.get("scene_type")
+                if scene == "only_background":
+                    sample.tags.append("only_background")
+                elif scene == "has_building":
+                    sample.tags.append("has_building")
+
         if len(samples) == 0:
             print("\n[Sample preview]")
             print(sample)
@@ -160,6 +169,9 @@ def attach_derived_metric_fields(dataset: fo.Dataset, stats: dict) -> None:
     여기서는 source != "fiftyone_eval" 인 메트릭(f1/f2/biou 등)만 담당한다.
     메트릭 목록은 config.PANEL_COLUMN_META 에서 동적으로 읽어 하드코딩 없이 동작한다.
 
+    캐시 적중 최적화: {metric}_{exp} 필드가 이미 schema 에 존재하는 experiment 는
+    샘플 순회 없이 건너뛴다. persistent 데이터셋이라 DB 에 이미 저장돼 있음.
+
     Args:
         dataset: 대상 FiftyOne 데이터셋 (evaluation.run() 이 완료된 상태).
         stats:   panel_stats.json 의 파싱 결과 dict.
@@ -172,10 +184,16 @@ def attach_derived_metric_fields(dataset: fo.Dataset, stats: dict) -> None:
     if not non_fo or not stats:
         return
 
+    schema = dataset.get_field_schema()
     experiments = stats.get("experiments", {})
     attached_any = False
 
     for exp_name in config.EXPERIMENTS:
+        # 이미 모든 derived 메트릭 필드가 schema 에 있으면 재부착 불필요
+        already_present = all(f"{m}_{exp_name}" in schema for m in non_fo)
+        if already_present:
+            continue
+
         records = experiments.get(exp_name, {}).get("records", [])
         if not records:
             print(f"  [attach_metrics] '{exp_name}': records 없음 → 건너뜀.")
