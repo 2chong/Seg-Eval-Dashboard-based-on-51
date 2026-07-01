@@ -34,6 +34,12 @@ panel_stats.json v2 스키마:
         ],
         "correlation": {
           "fields":[], "metrics":[], "matrix":[[]], "n_samples":int
+        },
+        "spatial": {                    ← manifest 에 geo/patch_id 가 없으면 키 없음 (graceful)
+          "points":   [{"image_path","row","col","lon","lat"}],
+          "morans_i": {"<field>": {"I":f, "p":f, "n":int}},
+          "fields":   [str],
+          "has_geo":  bool
         }
       }
     }
@@ -497,6 +503,227 @@ def _correlation_stats(records: list[dict], attr_fields: list[str], schema: dict
     }
 
 
+# ── 공간 분석 ──────────────────────────────────────────────────────────────────
+
+def _load_spatial_index(manifest: list[dict]) -> dict[str, dict]:
+    """manifest 에서 이미지별 격자 좌표 + 경위도를 추출한다.
+
+    config.SPATIAL_META 에 선언된 규칙으로 파싱한다.
+    patch_id/geo 키가 없거나 파싱 실패한 entry 는 건너뜀.
+    좌표가 전혀 없으면 빈 dict 반환 → spatial 블록 생성 안 함 (graceful degradation).
+
+    Returns:
+        {image_path: {"row": int, "col": int, "lon": float, "lat": float}}
+    """
+    import re
+
+    sm = config.SPATIAL_META
+    id_key   = sm["patch_id_key"]
+    id_regex = sm["patch_id_regex"]
+    geo_key  = sm["geo_key"]
+    lon_fld  = sm["lon_field"]
+    lat_fld  = sm["lat_field"]
+
+    pattern = re.compile(id_regex)
+    index: dict[str, dict] = {}
+
+    for entry in manifest:
+        image_path = entry.get("image_path")
+        if not image_path:
+            continue
+
+        # patch_id → 격자 (row, col)
+        patch_id = entry.get(id_key)
+        if not patch_id:
+            continue
+        m = pattern.match(str(patch_id))
+        if not m:
+            continue
+        row, col = int(m.group(1)), int(m.group(2))
+
+        # geo → 경위도
+        geo = entry.get(geo_key)
+        if not isinstance(geo, dict):
+            continue
+        lon = geo.get(lon_fld)
+        lat = geo.get(lat_fld)
+        if lon is None or lat is None:
+            continue
+
+        index[image_path] = {
+            "row": row, "col": col,
+            "lon": float(lon), "lat": float(lat),
+        }
+
+    return index
+
+
+def _morans_i(
+    values: list[float],
+    rows: list[int],
+    cols: list[int],
+) -> dict:
+    """격자 queen 인접성 기반 Moran's I 공간자기상관 지수.
+
+    외부 의존성 없는 직접 구현 (numpy만 사용).
+
+    공식: I = (N / S0) * (z^T W z) / (z^T z)
+      z = x - x_mean, S0 = sum(W)
+
+    유의성: 순열검정 (config.SPATIAL_META["morans_permutations"]회 셔플).
+      p = (#{I_perm >= I_obs} + 1) / (n_perm + 1)
+
+    Args:
+        values: 각 패치의 수치값 목록 (None 제외).
+        rows:   패치 격자 행 좌표 (values 와 같은 인덱스).
+        cols:   패치 격자 열 좌표.
+
+    Returns:
+        {"I": float, "p": float, "n": int} — 값이 부족하면 None 값으로.
+    """
+    n = len(values)
+    if n < 4:
+        return {"I": None, "p": None, "n": n}
+
+    arr  = np.array(values, dtype=float)
+    z    = arr - arr.mean()
+    z2   = float(np.dot(z, z))
+    if z2 == 0:
+        return {"I": 0.0, "p": 1.0, "n": n}
+
+    # 격자 (row, col) → queen 인접 가중치 행렬 (희소 표현: 인덱스 쌍 목록)
+    loc_map = {(r, c): i for i, (r, c) in enumerate(zip(rows, cols))}
+    neighbors_count = 0
+    wz_sum = 0.0  # Σ_ij w_ij * z_i * z_j
+
+    for i, (r, c) in enumerate(zip(rows, cols)):
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == 0 and dc == 0:
+                    continue
+                j = loc_map.get((r + dr, c + dc))
+                if j is not None:
+                    wz_sum += z[i] * z[j]
+                    neighbors_count += 1
+
+    s0 = float(neighbors_count)  # sum(W) = 인접 쌍 수 (양방향 합산)
+    if s0 == 0:
+        return {"I": None, "p": None, "n": n}
+
+    I_obs = float((n / s0) * (wz_sum / z2))
+
+    # 순열검정
+    n_perm = config.SPATIAL_META.get("morans_permutations", 199)
+    count_ge = 0
+    rng = np.random.default_rng(seed=42)
+    for _ in range(n_perm):
+        perm = rng.permutation(z)
+        wz_perm = 0.0
+        for i, (r, c) in enumerate(zip(rows, cols)):
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+                    j = loc_map.get((r + dr, c + dc))
+                    if j is not None:
+                        wz_perm += perm[i] * perm[j]
+        I_perm = float((n / s0) * (wz_perm / z2))
+        if I_perm >= I_obs:
+            count_ge += 1
+
+    p_val = (count_ge + 1) / (n_perm + 1)
+
+    return {"I": round(I_obs, 6), "p": round(p_val, 4), "n": n}
+
+
+def _spatial_stats(
+    records: list[dict],
+    spatial_index: dict[str, dict],
+    attr_fields: list[str],
+    schema: dict,
+) -> dict:
+    """공간 분석 블록 생성 — records + spatial_index 결합.
+
+    spatial_index 가 비면 {} 반환 (패널 placeholder 표시용).
+    records 가 단일 소스 원칙 유지 — 값을 points 에 중복 저장하지 않는다.
+
+    Args:
+        records:       _build_records() 결과 (속성 + 메트릭 per-sample 테이블).
+        spatial_index: _load_spatial_index() 결과.
+        attr_fields:   attribute 필드 이름 목록.
+        schema:        FiftyOne 필드 스키마.
+
+    Returns:
+        {
+          "points":   [{image_path, row, col, lon, lat}],
+          "morans_i": {field: {I, p, n}},
+          "fields":   [field, ...],
+          "has_geo":  True,
+        }
+    """
+    if not spatial_index or not records:
+        return {}
+
+    # records 를 image_path 로 인덱싱
+    rec_by_path = {r["image_path"]: r for r in records}
+
+    # 좌표 + record 가 모두 있는 샘플만 추려서 points 생성
+    points: list[dict] = []
+    for img_path, loc in spatial_index.items():
+        if img_path not in rec_by_path:
+            continue
+        points.append({
+            "image_path": img_path,
+            "row": loc["row"],
+            "col": loc["col"],
+            "lon": loc["lon"],
+            "lat": loc["lat"],
+        })
+
+    if not points:
+        return {}
+
+    # Moran's I 를 계산할 수치형 필드 목록
+    all_record_keys = set(records[0].keys()) if records else set()
+    metric_keys = [
+        k for k in all_record_keys
+        if k not in ("image_path", *attr_fields)
+    ]
+    numerical_attrs = [
+        f for f in attr_fields
+        if isinstance(schema.get(f), (fo.FloatField, fo.IntField))
+    ]
+    candidate_fields = [*numerical_attrs, *metric_keys]
+
+    morans_results: dict[str, dict] = {}
+    for field in candidate_fields:
+        vals, rows, colss = [], [], []
+        for pt in points:
+            rec = rec_by_path.get(pt["image_path"], {})
+            v = rec.get(field)
+            if v is None:
+                continue
+            try:
+                vals.append(float(v))
+                rows.append(pt["row"])
+                colss.append(pt["col"])
+            except (TypeError, ValueError):
+                continue
+        if len(vals) < 4:
+            continue
+        morans_results[field] = _morans_i(vals, rows, colss)
+
+    if not morans_results:
+        return {}
+
+    return {
+        "points":   points,
+        "morans_i": morans_results,
+        "fields":   list(morans_results.keys()),
+        "has_geo":  True,
+    }
+
+
 # ── 메인 ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -519,6 +746,13 @@ def main() -> None:
 
     manifest = seg_io.load_manifest(config.MANIFEST_PATH)
     print(f"Manifest loaded: {len(manifest)} entries")
+
+    # ── 공간 좌표 인덱스 (루프 밖 1회, manifest 에 geo/patch_id 없으면 {}) ────
+    spatial_index = _load_spatial_index(manifest)
+    if spatial_index:
+        print(f"Spatial index: {len(spatial_index)} entries (patch_id + geo)")
+    else:
+        print("Spatial index: empty — manifest 에 geo/patch_id 없음 (spatial 블록 생략)")
 
     attrs = seg_io.load_attrs(config.ATTRS_PATH)
 
@@ -639,6 +873,14 @@ def main() -> None:
         # correlation (records 기반, 메트릭 동적)
         corr = _correlation_stats(records, attr_field_names, schema)
 
+        # spatial (records + spatial_index 결합, 좌표 없으면 블록 생략)
+        spatial = _spatial_stats(records, spatial_index, attr_field_names, schema)
+        if spatial:
+            print(f"  Spatial: {len(spatial['points'])} points, "
+                  f"Moran's I computed for {len(spatial['fields'])} fields")
+        else:
+            print("  Spatial: 좌표 없음 — spatial 블록 생략")
+
         exp_stats[exp_name] = {
             "confusion_matrix":   {"classes": exp_classes, "matrix": cm.tolist()},
             "per_class":          per_class,
@@ -647,6 +889,8 @@ def main() -> None:
         }
         if corr:
             exp_stats[exp_name]["correlation"] = corr
+        if spatial:
+            exp_stats[exp_name]["spatial"] = spatial
 
     # 임시 sub-eval 정리
     try:
@@ -682,9 +926,12 @@ def main() -> None:
     print(f"  columns     : {list(columns_meta.keys())}")
     if classes:
         print(f"  classes     : {len(classes)} ({classes[:3]}...)")
+    has_spatial = any("spatial" in v for v in exp_stats.values())
     print()
     print("Next step -> python main.py")
-    print("  App 우상단 '+' 에서 5개 패널을 열어보세요.")
+    print(f"  App 우상단 '+' 에서 {'6' if has_spatial else '5'}개 패널을 열어보세요.")
+    if has_spatial:
+        print("  (6) Spatial 패널: 격자 히트맵 / 지리 산점도 / Moran's I")
     print("=" * 65)
 
 

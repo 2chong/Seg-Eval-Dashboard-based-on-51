@@ -1,7 +1,7 @@
 """
 plugins/seg_dashboard/panels/__init__.py
 ─────────────────────────────────────────
-5개 구체 패널 공개 API.
+6개 구체 패널 공개 API.
 
 새 패널 추가:
   1. panels/<이름>.py 에 BasePanel 서브클래스 작성
@@ -15,6 +15,7 @@ from .evaluation import EvaluationPanel
 from .combined import CombinedPanel
 from .experiment import ExperimentPanel
 from .schema import SchemaPanel
+from .spatial import SpatialPanel
 
 __all__ = [
     "DataAnalysisPanel",
@@ -22,4 +23,5 @@ __all__ = [
     "CombinedPanel",
     "ExperimentPanel",
     "SchemaPanel",
+    "SpatialPanel",
 ]

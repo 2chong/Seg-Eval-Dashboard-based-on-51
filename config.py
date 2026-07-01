@@ -4,7 +4,7 @@ config.py
 건물 패치 평가 대시보드 공유 상수.
 
 데이터셋 : 건물 패치 PNG + GT/Pred 이진 마스크 (건물=1, 배경=0)
-속성     : 기하 20종 / 방사 4종 = 24종  (VLM 3종 미구현 — 추후 port-attribute 로 추가)
+속성     : 기하 20종 / 방사 4종 / 장면 1종 = 25종  (VLM 3종 미구현 — 추후 port-attribute 로 추가)
 실험     : pred SHP → 이진 마스크 래스터화 → FiftyOne 평가
 
 새 데이터셋 추가 → DATASETS 레지스트리에 항목 추가.
@@ -32,6 +32,7 @@ ATTRIBUTE_GROUPS: dict[str, list[str]] = {
         "bd_fi", "bd_cv", "bd_cluster_ratio", "bd_boundary_complexity",
         "bd_elongation_mean", "bd_orientation_entropy",
         "bd_small_ratio", "bd_middle_ratio", "bd_big_ratio",
+        "scene_type",
     ],
     "radiometric": [
         "brightness_mean", "brightness_std",
@@ -46,6 +47,7 @@ ATTRIBUTE_GROUPS: dict[str, list[str]] = {
         "bd_small_ratio", "bd_middle_ratio", "bd_big_ratio",
         "brightness_mean", "brightness_std",
         "shadow_area_ratio", "vegetation_ratio",
+        "scene_type",
     ],
 }
 DEFAULT_ATTRIBUTE_GROUP = "all"
@@ -155,7 +157,7 @@ DATASETS: dict[str, dict] = {
         "attributes": "all",
     },
 }
-DEFAULT_DATASET = "jungrang_2022"
+DEFAULT_DATASET = "suseo_2022"
 
 # ── Experiment 레지스트리 ─────────────────────────────────────────────────────
 # 새 모델(experiment)을 추가할 때 여기에만 등록하면 된다.
@@ -418,6 +420,16 @@ PANEL_COLUMN_META: dict[str, dict] = {
         "compute":     {"source": "radiometric", "field": "vegetation_ratio"},
     },
 
+    # ── 장면 속성 1종 ──────────────────────────────────────────────────────
+    # source="gt_mask": GT 마스크 building(1) 픽셀 유무로 판정
+    "scene_type": {
+        "kind":        "attribute",
+        "type":        "categorical",
+        "description": "GT 마스크 건물 픽셀 유무 — only_background / has_building",
+        "values":      ["only_background", "has_building"],
+        "compute":     {"source": "gt_mask", "field": "scene_type"},
+    },
+
     # ── metrics ───────────────────────────────────────────────────────────────
     # fiftyone_eval: FiftyOne evaluate_segmentations 가 생성하는 per-sample 필드.
     #   evaluation.run() 이 {exp}_{field} → {field}_{exp} 로 rename 후
@@ -457,4 +469,20 @@ PANEL_COLUMN_META: dict[str, dict] = {
         "range":       [0.0, 1.0],
         "compute":     {"source": "derived", "fn": "iou", "deps": ["precision", "recall"]},
     },
+}
+
+# ── 공간 좌표 출처 선언 ──────────────────────────────────────────────────────
+# manifest entry 에서 격자 좌표 + 경위도를 추출하는 규칙의 단일 진실 소스.
+# 이 키들이 manifest 에 없는 데이터셋은 spatial 블록이 생성되지 않고
+# Spatial 패널이 placeholder 를 표시한다 (graceful degradation).
+#
+# 새 좌표 스키마의 데이터셋을 추가할 때 이 dict 만 수정하면 된다.
+SPATIAL_META: dict = {
+    "patch_id_key":        "patch_id",          # manifest entry 의 격자 ID 키
+    "patch_id_regex":      r"r(\d+)_c(\d+)",    # r{row}_c{col} 파싱 정규식
+    "geo_key":             "geo",               # entry["geo"] 서브딕셔너리 키
+    "lon_field":           "centroid_lon",      # entry["geo"]["centroid_lon"]
+    "lat_field":           "centroid_lat",      # entry["geo"]["centroid_lat"]
+    "adjacency":           "queen",             # Moran's I 격자 가중치 (queen = 8근방)
+    "morans_permutations": 199,                 # 순열검정 반복 횟수
 }

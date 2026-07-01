@@ -1,9 +1,10 @@
 name: seg_dashboard
-version: "2.0.0"
-description: "Multi-panel segmentation evaluation dashboard (Data / Evaluation / Combined / Experiment / Schema)"
+version: "2.1.0"
+description: "Multi-panel segmentation evaluation dashboard (Data / Evaluation / Combined / Experiment / Schema / Spatial)"
 panels:
   - seg_1_data_analysis
   - seg_2_evaluation
   - seg_3_combined
   - seg_4_experiment
   - seg_5_schema
+  - seg_6_spatial

@@ -41,6 +41,7 @@ from .multi_select import (
     dataset_labels,
 )
 from .section_label import SectionLabel, SampleCountSection
+from .spatial import SpatialFieldSection, MoransISection
 
 __all__ = [
     "PanelSection",
@@ -66,4 +67,6 @@ __all__ = [
     "dataset_labels",
     "SectionLabel",
     "SampleCountSection",
+    "SpatialFieldSection",
+    "MoransISection",
 ]

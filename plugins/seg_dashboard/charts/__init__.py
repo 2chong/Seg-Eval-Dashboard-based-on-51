@@ -32,6 +32,9 @@ from .grouped_metric import GroupedMetricChart
 from .metric_dist import MetricDistributionChart
 from .cross_exp_metric import CrossExpCategoricalChart, CrossExpNumericalChart
 from .dataset_compare import DatasetCompareCategoricalChart, DatasetCompareNumericalChart
+from .spatial_grid import GridHeatmapChart
+from .spatial_scatter import GeoScatterChart
+from .morans import MoransIChart
 
 __all__ = [
     "BaseChart",
@@ -56,4 +59,8 @@ __all__ = [
     # 구 이름 별칭
     "CategoricalRecallChart",
     "NumericalRecallChart",
+    # Spatial charts
+    "GridHeatmapChart",
+    "GeoScatterChart",
+    "MoransIChart",
 ]

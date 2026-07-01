@@ -116,6 +116,15 @@ def get_records(stats: dict, experiment: Optional[str] = None) -> list[dict]:
     return get_experiment_stats(stats, experiment).get("records", [])
 
 
+def get_spatial_stats(stats: dict, experiment: Optional[str] = None) -> dict:
+    """experiment 의 spatial 블록을 반환한다. 없으면 {} (graceful degradation).
+
+    manifest 에 geo/patch_id 가 없는 데이터셋은 spatial 키 자체가 없다.
+    Spatial 패널·섹션은 이 함수가 {} 를 반환하면 placeholder 를 표시한다.
+    """
+    return get_experiment_stats(stats, experiment).get("spatial", {})
+
+
 # ── columns 헬퍼 ──────────────────────────────────────────────────────────────
 
 def get_columns(stats: dict) -> dict:

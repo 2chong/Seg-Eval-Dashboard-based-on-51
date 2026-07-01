@@ -1,7 +1,7 @@
 """
 plugins/seg_dashboard/__init__.py
 ──────────────────────────────────
-FiftyOne plugin entry point. 5개 패널을 등록한다.
+FiftyOne plugin entry point. 6개 패널을 등록한다.
 
 새 패널 추가 순서:
   1. panels/<이름>.py 에 BasePanel 서브클래스 작성
@@ -19,6 +19,7 @@ try:
         CombinedPanel,
         ExperimentPanel,
         SchemaPanel,
+        SpatialPanel,
     )
     _IMPORT_ERROR = None
 except Exception as _e:
@@ -37,6 +38,7 @@ def register(p):
         CombinedPanel,
         ExperimentPanel,
         SchemaPanel,
+        SpatialPanel,
     ):
         try:
             p.register(cls)
