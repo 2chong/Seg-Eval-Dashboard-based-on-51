@@ -75,30 +75,14 @@ def configure_sidebar(dataset: fo.Dataset) -> None:
 
 def launch(dataset: fo.Dataset) -> None:
     """FiftyOne App 을 실행하고 사용자가 Ctrl+C 로 종료할 때까지 대기한다."""
+    import config as _cfg
+
     print("\n" + "=" * 70)
-    print("  FiftyOne App")
-    print("=" * 70)
-    print("  브라우저에서 열기: http://localhost:5151")
-    print()
-    print("  [마스크 오버레이]")
-    print("  → 썸네일 클릭 → 좌측 Labels 패널에서")
-    print("    ground_truth / predictions 눈 아이콘으로 각각 on/off")
-    print()
-    print("  [Filters 사이드바 그룹]")
-    print("  → Sample Attributes  : bd_s, bd_portion, brightness_mean, shadow_area_ratio 등")
-    print("  → Metrics · {model}  : recall_{exp}, precision_{exp}, f1_{exp}, biou_{exp} 등")
-    print("  → 위 필드로 정렬(Sort by)도 가능")
-    print()
-    print("  [5개 분석 패널]  App 우상단 '+' 에서 열기 (Panels 탭)")
-    print("  → ① Data Analysis   : 속성 요약 + 분포 차트")
-    print("  → ② Evaluation      : experiment 선택 + Confusion Matrix")
-    print("  → ③ Combined        : 속성 × 메트릭 분석 + 상관 heatmap")
-    print("  → ④ Experiment      : experiment 간 per-class 메트릭 비교")
-    print("  → ⑤ Schema & Table  : 컬럼 스키마 + per-sample 표")
-    print("  ※ panel_stats.json 없으면 먼저:")
-    print("     python tools/precompute_panel_stats.py")
-    print()
-    print("  종료: 터미널에서 Ctrl+C")
+    print("  FiftyOne App  →  http://localhost:5151")
+    print("  패널: App 우상단 '+' → Panels 탭")
+    if not _cfg.PANEL_STATS_PATH.exists():
+        print("  ※ 패널 통계 없음 — make stats 실행 후 재시작하면 패널이 활성화됩니다.")
+    print("  종료: Ctrl+C")
     print("=" * 70 + "\n")
 
     # 사이드바는 _build_all_datasets 루프에서 이미 각 데이터셋별로 설정됐다.

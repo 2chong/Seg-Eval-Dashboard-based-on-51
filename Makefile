@@ -1,5 +1,5 @@
 PYTHON   = python
-DS      ?= jungrang_2022
+DS      ?= suseo_2022
 
 # 모든 데이터셋 목록 — 새 데이터셋 추가 시 여기와 config.DATASETS 만 편집.
 DATASETS = seocho_2022 gangseo_2022 junggu_2022 \
@@ -21,7 +21,7 @@ sync:
 sync-all:
 	$(foreach ds,$(DATASETS),\
 		$(PYTHON) tools/generate_attrs.py --dataset $(ds) && \
-		$(PYTHON) tools/precompute_panel_stats.py --dataset $(ds) && ) true
+		$(PYTHON) tools/precompute_panel_stats.py --dataset $(ds) && ) $(PYTHON) -c "pass"
 
 # =============================================================================
 # App 실행 (주 명령)
@@ -123,7 +123,7 @@ regen-attr:
 regen-attr-all:
 	$(foreach ds,$(DATASETS),\
 		$(PYTHON) tools/generate_attrs.py --dataset $(ds) && \
-		$(PYTHON) tools/precompute_panel_stats.py --dataset $(ds) && ) true
+		$(PYTHON) tools/precompute_panel_stats.py --dataset $(ds) && ) $(PYTHON) -c "pass"
 
 .PHONY: regen-stats
 regen-stats:

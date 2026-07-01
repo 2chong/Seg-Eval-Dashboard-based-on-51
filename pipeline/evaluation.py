@@ -40,10 +40,12 @@ def run(dataset: fo.Dataset) -> dict[str, object]:
     Returns:
         {exp_name: SegmentationResults}
     """
-    print("\nChecking evaluation cache …")
     existing_evals = dataset.list_evaluations()
     all_results: dict[str, object] = {}
     schema = dataset.get_field_schema()
+
+    cached_exps: list[str] = []
+    new_exps:    list[str] = []
 
     for exp_name in config.EXPERIMENTS:
         pred_field = f"predictions_{exp_name}"
@@ -54,12 +56,12 @@ def run(dataset: fo.Dataset) -> dict[str, object]:
             continue
 
         if eval_key in existing_evals:
-            print(f"  [{exp_name}] 캐시 로드 ('{eval_key}') …")
             all_results[exp_name] = dataset.load_evaluation_results(eval_key)
-            print(f"  ✓ '{exp_name}' loaded from cache.")
+            cached_exps.append(exp_name)
             continue
 
-        print(f"  [{exp_name}] predictions='{pred_field}', eval_key='{eval_key}' …")
+        # 실제 평가 실행 — 캐시 미스 경로
+        print(f"\nRunning evaluation: '{exp_name}'  (predictions='{pred_field}') …")
         results = dataset.evaluate_segmentations(
             pred_field,
             gt_field="ground_truth",
@@ -67,6 +69,7 @@ def run(dataset: fo.Dataset) -> dict[str, object]:
             mask_targets=config.MASK_TARGETS,
         )
         all_results[exp_name] = results
+        new_exps.append(exp_name)
         print(f"  ✓ '{exp_name}' evaluation complete.")
 
     if not all_results:
@@ -75,7 +78,10 @@ def run(dataset: fo.Dataset) -> dict[str, object]:
             "  Run python tools/build_manifest.py first."
         )
 
-    print("Evaluation done.")
+    # 캐시 적중 요약 — 모든 exp가 캐시일 때 1줄로 축약
+    if cached_exps:
+        exp_list = ", ".join(cached_exps)
+        print(f"  평가 캐시: {len(cached_exps)}/{len(config.EXPERIMENTS)} experiments ({exp_list})")
 
     # FO가 {exp}_{metric} 순으로 필드를 생성하므로 {metric}_{exp} 로 리네임.
     # configure_sidebar 의 f.endswith(f"_{exp_name}") 패턴과 일치시키기 위함.

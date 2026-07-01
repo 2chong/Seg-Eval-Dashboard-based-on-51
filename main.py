@@ -129,8 +129,11 @@ def _build_all_datasets() -> fo.Dataset:
     Returns:
         ACTIVE 데이터셋 (App 에 기본으로 표시될 데이터셋).
     """
-    original_active = config.ACTIVE_DATASET
-    active_dataset  = None
+    original_active  = config.ACTIVE_DATASET
+    active_dataset   = None
+    active_results   = None
+    fallback_dataset = None
+    fallback_results = None
 
     for ds_key, ds_cfg in config.DATASETS.items():
         manifest_path = ds_cfg["data_dir"] / "manifest.json"
@@ -161,9 +164,23 @@ def _build_all_datasets() -> fo.Dataset:
         # 같은 속성그룹을 가진 데이터셋은 자동으로 같은 사이드바를 갖게 된다.
         configure_sidebar(ds)
 
-        if ds_key == original_active or active_dataset is None:
+        # active 데이터셋 선택: 요청한 데이터셋을 우선.
+        # 폴백 후보(첫 번째 유효 데이터셋)만 기억해 두고 리포트는 루프 후에 1회만 출력.
+        if ds_key == original_active:
             active_dataset = ds
-            evaluation.print_report(all_results)
+            active_results = all_results
+        elif fallback_dataset is None:
+            fallback_dataset = ds
+            fallback_results = all_results
+
+    # 요청 데이터셋이 없으면(manifest 미존재 등) 첫 번째 유효 데이터셋으로 폴백
+    if active_dataset is None:
+        active_dataset = fallback_dataset
+        active_results = fallback_results
+
+    # Per-Class Report: 활성 데이터셋 1개에 대해서만 출력
+    if active_results is not None:
+        evaluation.print_report(active_results)
 
     config.activate_dataset(original_active)
     return active_dataset
